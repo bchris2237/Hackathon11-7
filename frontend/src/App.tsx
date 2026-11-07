@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import type { HealthResponse } from "../../contracts/models";
 import { ApiClient, describeError } from "./lib/api";
+import BusinessForm from "./components/BusinessForm";
 import { readConfig } from "./config";
+import { initialState, scenarioReducer, validateForm } from "./state/scenario";
 
 type HealthState =
   | { kind: "checking" }
@@ -9,7 +11,7 @@ type HealthState =
   | { kind: "unavailable"; message: string };
 
 const NOT_BUILT = [
-  "Business description input and extraction",
+  "Extraction of a draft from descriptions",
   "Human confirmation of the draft scenario",
   "Optimization, exchange graph and certificate",
   "Natural-language what-if simulation",
@@ -23,6 +25,9 @@ export default function App() {
   );
   const [state, setState] = useState<HealthState>({ kind: "checking" });
   const isFixture = config.dataMode === "fixture";
+  const [scenario, dispatch] = useReducer(scenarioReducer, undefined, initialState);
+  const validation = useMemo(() => validateForm(scenario.form), [scenario.form]);
+  const [continueNote, setContinueNote] = useState(false);
 
   useEffect(() => {
     // The cleanup aborts the request so a late response can never overwrite newer state.
@@ -88,9 +93,67 @@ export default function App() {
             <h2 id="inputs-heading" className="text-lg font-medium">
               Businesses and scenario
             </h2>
-            <p className="mt-2 text-slate-700">
-              Input and confirmation will appear here. Nothing is extracted or confirmed yet.
+            <p className="mt-2 text-sm text-slate-700">
+              Durations are shown in hours but stored as whole minutes. Sample data is fictional.
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium"
+                onClick={() => {
+                  setContinueNote(false);
+                  dispatch({ type: "load_canonical" });
+                }}
+              >
+                Load fictional sample
+              </button>
+              <button
+                type="button"
+                className="rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium"
+                onClick={() => {
+                  setContinueNote(false);
+                  dispatch({ type: "reset" });
+                }}
+              >
+                Reset to blank
+              </button>
+            </div>
+            <div className="mt-4 space-y-4">
+              {scenario.form.businesses.map((business, index) => (
+                <BusinessForm
+                  key={index}
+                  index={index}
+                  business={business}
+                  errors={validation.errors}
+                  onChange={(i, patch) => {
+                    setContinueNote(false);
+                    dispatch({ type: "edit_business", index: i, patch });
+                  }}
+                />
+              ))}
+            </div>
+            <div className="mt-4" aria-live="polite" data-testid="validity">
+              {validation.scenario ? (
+                <p className="text-emerald-900">Input is valid.</p>
+              ) : (
+                <p className="text-red-800">
+                  {validation.errors.length} problem{validation.errors.length === 1 ? "" : "s"} to fix before continuing.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={!validation.scenario}
+              className="mt-2 rounded bg-blue-800 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+              onClick={() => setContinueNote(true)}
+            >
+              Continue to confirmation
+            </button>
+            {continueNote && (
+              <p role="status" className="mt-2 text-sm text-slate-700">
+                The confirmation step is not built yet. Nothing was sent to the backend.
+              </p>
+            )}
             <h3 className="mt-4 text-sm font-semibold uppercase tracking-wide text-slate-600">Not built yet</h3>
             <ul className="mt-2 list-disc pl-5 text-slate-700">
               {NOT_BUILT.map((item) => (
@@ -105,6 +168,11 @@ export default function App() {
             </h2>
             <p className="mt-1 break-all text-sm text-slate-600" data-testid="api-base-url">
               {config.apiBaseUrl}
+            </p>
+            <p className="mt-3 text-sm text-slate-700" data-testid="result-slot">
+              {scenario.result
+                ? "A result for the current inputs is available."
+                : "No result. Results and certificates are cleared whenever the inputs change."}
             </p>
             <div className="mt-3" data-testid="health-state" aria-live="polite">
               {state.kind === "checking" && <p>Checking /health…</p>}
