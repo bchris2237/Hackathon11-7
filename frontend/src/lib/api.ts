@@ -228,8 +228,12 @@ export class ApiClient {
   simulate(req: SimulateRequest, options?: CallOptions): Promise<SimulateResponse> {
     return this.post("/simulate", req, options);
   }
-  explain(req: ExplainRequest, options?: CallOptions): Promise<ExplainResponse> {
-    return this.post("/explain", req, options);
+  async explain(req: ExplainRequest, options?: CallOptions): Promise<ExplainResponse> {
+    const body = await this.post<ExplainRequest, ExplainResponse>("/explain", req, options);
+    if (typeof body.text !== "string" || body.text.length === 0 || body.text.length > 5000) {
+      throw new ApiUnavailableError("Backend /explain response does not match the v1 contract.");
+    }
+    return body;
   }
 }
 
