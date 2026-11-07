@@ -57,7 +57,7 @@ npm --prefix frontend test -- --run
 npm --prefix frontend run build
 ```
 
-Expected: pytest **63 passed, 2 xfailed**, Vitest **47 passed**, typecheck and build with no errors.
+Expected: pytest **64 passed, 2 xfailed**, Vitest **48 passed**, typecheck and build with no errors.
 Tell Developer 2 the exact output if anything differs. Do not "fix" it by upgrading packages.
 
 ## 5. Review (about 15 minutes)
@@ -65,7 +65,7 @@ Tell Developer 2 the exact output if anything differs. Do not "fix" it by upgrad
 - Read `GENERAL-GUIDELINES.md`, `docs/contracts.md` and `docs/phase-0-checklist.md`.
 - Tick your section of the review checklist in `docs/phase-0-checklist.md` locally, but do not commit those edits.
 - Open `fixtures/canonical.json` and work out baseline 1440 and optimum production 540 by hand.
-- Answer in the group chat: should the MVP allow only exactly 3 businesses, or 3 to 5? The schema currently allows 3 to 5.
+- The MVP schema allows **exactly 3 businesses** (agreed in person; see `docs/contracts.md`). Pull the latest `main` before you start.
 - Reply "reviewed and reproduced" to Developer 2.
 
 ## 6. Create your branch (once, after Developer 2 confirms)

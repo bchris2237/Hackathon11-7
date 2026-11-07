@@ -240,7 +240,7 @@ class ExtractRequest(BaseModel):
         extra='forbid',
     )
     descriptions: Annotated[
-        list[BusinessDescription], Field(max_length=5, min_length=1)
+        list[BusinessDescription], Field(max_length=3, min_length=1)
     ]
 
 
@@ -267,7 +267,7 @@ class Draft(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    businesses: Annotated[list[DraftBusiness], Field(max_length=5)]
+    businesses: Annotated[list[DraftBusiness], Field(max_length=3)]
     deliverables: Annotated[list[Deliverable], Field(max_length=6)]
 
 
@@ -356,7 +356,7 @@ class Scenario(BaseModel):
         extra='forbid',
     )
     schemaVersion: Literal['1']
-    businesses: Annotated[list[Business], Field(max_length=5, min_length=3)]
+    businesses: Annotated[list[Business], Field(max_length=3, min_length=3)]
     deliverables: Annotated[list[Deliverable], Field(max_length=6, min_length=1)]
     confirmed: Literal[True]
 
@@ -372,7 +372,7 @@ class Result(BaseModel):
     schemaVersion: Literal['1']
     status: Literal['collaboration', 'no_exchange', 'infeasible']
     assignments: Annotated[list[Assignment], Field(max_length=6)]
-    businessMetrics: Annotated[list[BusinessMetrics] | None, Field(max_length=5)]
+    businessMetrics: Annotated[list[BusinessMetrics] | None, Field(max_length=3)]
     totals: Totals | None
     reasons: list[Reason]
     certificate: Certificate | None

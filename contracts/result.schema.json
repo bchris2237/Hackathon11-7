@@ -16,7 +16,7 @@
     },
     "businessMetrics": {
       "type": ["array", "null"],
-      "maxItems": 5,
+      "maxItems": 3,
       "items": { "$ref": "#/$defs/BusinessMetrics" }
     },
     "totals": {

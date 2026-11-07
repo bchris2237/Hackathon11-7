@@ -11,7 +11,7 @@
     "businesses": {
       "type": "array",
       "minItems": 3,
-      "maxItems": 5,
+      "maxItems": 3,
       "items": { "$ref": "#/$defs/Business" }
     },
     "deliverables": {

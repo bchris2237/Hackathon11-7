@@ -64,18 +64,21 @@ No `.env` file is needed for Phase 0. Defaults match `.env.example`. Set variabl
 | # | Command (from repo root) | Observed result |
 |---|---|---|
 | 1 | `python -m pip install -e '.[dev]'` | exit 0 |
-| 2 | `python -m pytest tests/optimizer tests/backend` | **63 passed, 2 xfailed**, exit 0 |
+| 2 | `python -m pytest tests/optimizer tests/backend` | **64 passed, 2 xfailed**, exit 0 |
 | 3 | `npm --prefix frontend ci` | 150 packages, exit 0 |
 | 4 | `npm --prefix frontend run typecheck` | exit 0, no errors |
-| 5 | `npm --prefix frontend test -- --run` | **2 files, 47 tests passed**, exit 0 |
+| 5 | `npm --prefix frontend test -- --run` | **2 files, 48 tests passed**, exit 0 |
 | 6 | `npm --prefix frontend run build` | built, exit 0 (`tsc --noEmit` then `vite build`) |
 | 7 | `python scripts/generate_contracts.py --check` | "Generated contract files are up to date: models.py, models.ts" |
 | 8 | `npm --prefix frontend run e2e` (Playwright, Chromium) | **2 passed**, against the real backend and dev server |
 | 9 | `npm --prefix frontend audit` | 0 vulnerabilities |
-| 10 | Fresh venv from `requirements.lock` with `--require-hashes`, then pytest | 63 passed, 2 xfailed |
+| 10 | Fresh venv from `requirements.lock` with `--require-hashes`, then pytest | 63 passed, 2 xfailed (run before the exactly-3 change, not repeated) |
 
 Notes on these results:
 
+- **Rerun after the exactly-3 schema change:** commands 2, 4, 5, 6 and 7 (regenerate, check, pytest, typecheck, Vitest, build all
+  passed). Commands 3, 8, 9 and 10 (`npm ci`, Playwright e2e, audit, lock install) were **not rerun**. The change touched only
+  schema limits, docs and one test case, but treat those four rows as results from before it.
 - **The 2 xfails are intentional.** They are the two `SimulateRequest` conditional rules ("text requires
   no changes and `apply: false`"). The JSON Schema rejects them and the test asserts that; the generated
   Pydantic model cannot express them, so the backend validator (B-track) must. See `docs/contracts.md`.
@@ -88,15 +91,15 @@ Notes on these results:
 
 ## Schema parity output
 
-`tests/backend/test_contracts_parity.py` (all in the 63 passed):
+`tests/backend/test_contracts_parity.py` (all in the 64 passed):
 
 - all 3 schemas are valid JSON Schema 2020-12; the OpenAPI file parses and every `$ref` resolves
 - `canonical.json` and `coordination.json` validate in JSON Schema **and** parse in Pydantic
 - `extraction.json` request and response validate; response `mode` is `fixture`
 - both disruption patches (`noExchange`, `infeasible`) validate as `Change` objects
-- **20 invalid scenarios**, 6 invalid and 3 valid simulate requests: rejected or accepted identically by JSON Schema and Pydantic
+- **21 invalid scenarios**, 6 invalid and 3 valid simulate requests: rejected or accepted identically by JSON Schema and Pydantic
   (except the 2 xfails above)
-- `frontend/src/contracts.test.ts` runs the **same case file** through Ajv: all 47 tests pass
+- `frontend/src/contracts.test.ts` runs the **same case file** through Ajv: all 48 tests pass
 - `models.py` is not stale (test), and `generate_contracts.py --check` confirms `models.ts` is not stale
 
 ## Fixture validation output
@@ -146,7 +149,7 @@ Tick only after you have actually done it. Leave unchecked otherwise.
 **Everyone**
 - [ ] Read `GENERAL-GUIDELINES.md` and `docs/contracts.md`
 - [ ] Open `fixtures/canonical.json` and recompute baseline 1440 and optimum production 540 by hand
-- [ ] Agree on the open contract question: schema allows 3 to 5 businesses, MVP text says exactly 3
+- [ ] Confirm the decision in `docs/contracts.md`: the schema now requires exactly 3 businesses (proposed by Developer 2)
 - [ ] Agree that `contracts/models.*` are never hand-edited
 - [ ] Reproduce startup from a fresh clone of the committed foundation (install, both start commands, `/health`, page)
 - [ ] Run commands 2 to 6 above and compare with the table
@@ -172,7 +175,9 @@ Tick only after you have actually done it. Leave unchecked otherwise.
 ## Pending issues and limitations
 
 1. Foundation is uncommitted (Developer 2 action).
-2. Business count: schema allows 3 to 5; the text says MVP is exactly 3. **Joint decision needed.**
+2. Business count: the schema now enforces exactly 3 (changed after the first push; see `docs/contracts.md`).
+   Decided: Developers 1 and 3 agreed in person on 2026-11-07 (reported by Developer 2). The first push (`35a95fe`)
+   allowed 3 to 5, so anyone who cloned before the next push must pull.
 3. Runtime validators missing by design: unique ids, `ownerId` references, unique service per business,
    `MISSING_BASELINE` (422), text-plus-changes rule, 32 KiB body limit (constant exists, not enforced).
 4. `APP_MODE=live` always refuses to start. There is no Lambda handler, `infra/template.yaml`, or deploy script yet.

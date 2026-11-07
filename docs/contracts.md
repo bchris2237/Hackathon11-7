@@ -60,8 +60,19 @@ These cannot be expressed in JSON Schema. Phase 0 only checks them on the fixtur
 - request size 32 KiB (`MAX_BODY_BYTES` in `backend/app.py` is defined but not enforced yet)
 - digest and certificate recomputation (Certificate verification is recomputed by the backend)
 
-## Open contract question (needs a joint decision)
+## Decision: the MVP has exactly 3 businesses
 
 The guide says the MVP has "exactly 3 businesses" with an optional extension to "at most 5".
-The schema currently allows **3 to 5**. If the MVP must reject 4 or 5, enforce it in a validator or
-tighten `businesses.maxItems` in `scenario.schema.json` and regenerate.
+The schema now enforces **exactly 3**. Proposed by Developer 2. Developers 1 and 3 agreed in person on 2026-11-07
+(reported by Developer 2; this was not recorded in writing by Developers 1 and 3 themselves).
+Why: it matches the frozen MVP text, and widening later is backward compatible while tightening later is not.
+With 3 businesses each deliverable has at most 3 possible providers, so the exhaustive search has at most
+3^6 = 729 candidates. The guide's 5^6 = 15625 figure only applies to the 5-business extension.
+
+Limits changed to 3: `Scenario.businesses` (min and max), `Draft.businesses`, `ExtractRequest.descriptions`
+(min stays 1 so a partly filled input is allowed) and `Result.businessMetrics`.
+The case "four businesses (MVP is exactly 3)" in `fixtures/contract-cases.json` pins it in both languages.
+
+To enable the 5-business extension later, it is a joint contract change: raise those four maxItems values to 5
+(and `Scenario.businesses` maxItems), add valid fixtures for 4 and 5, remove the four-businesses invalid case,
+regenerate, rerun all tests, and update the UI layout and optimizer tests.

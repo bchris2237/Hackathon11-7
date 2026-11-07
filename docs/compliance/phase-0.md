@@ -28,7 +28,7 @@ unavailable. The optimizer is a placeholder that raises.
 
 ## Tests actually run
 
-See `docs/phase-0-checklist.md`: pytest 63 passed and 2 xfailed; Vitest 47 passed; `tsc --noEmit` clean;
+See `docs/phase-0-checklist.md`: pytest 64 passed and 2 xfailed; Vitest 48 passed; `tsc --noEmit` clean;
 Vite build ok; Playwright 2 passed; `generate_contracts.py --check` up to date; `npm audit` 0 vulnerabilities;
 lock install into a fresh venv verified.
 **NOT RUN:** Python dependency audit; OpenAPI linter; non-Windows platforms; fresh clone of a committed checkout.

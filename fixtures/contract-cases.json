@@ -15,6 +15,16 @@
     { "name": "confirmed missing", "ops": [{ "op": "delete", "path": ["confirmed"] }] },
     { "name": "wrong schema version", "ops": [{ "op": "set", "path": ["schemaVersion"], "value": "2" }] },
     { "name": "only two businesses", "ops": [{ "op": "delete", "path": ["businesses", 2] }] },
+    {
+      "name": "four businesses (MVP is exactly 3)",
+      "ops": [
+        {
+          "op": "append",
+          "path": ["businesses"],
+          "value": { "id": "extraco", "name": "ExtraCo", "capacityMinutes": 600, "coordinationMinutes": 0, "estimates": [] }
+        }
+      ]
+    },
     { "name": "no deliverables", "ops": [{ "op": "set", "path": ["deliverables"], "value": [] }] },
     {
       "name": "seven deliverables",

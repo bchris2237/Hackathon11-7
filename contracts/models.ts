@@ -70,7 +70,7 @@ export interface Scenario {
   schemaVersion: "1";
   /**
    * @minItems 3
-   * @maxItems 5
+   * @maxItems 3
    */
   businesses: [Business, Business, Business, ...Business[]];
   /**
@@ -121,7 +121,7 @@ export interface Result1 {
    */
   assignments: Assignment[];
   /**
-   * @maxItems 5
+   * @maxItems 3
    */
   businessMetrics: BusinessMetrics[] | null;
   totals: null | Totals;
@@ -235,7 +235,7 @@ export interface BusinessDescription {
 export interface ExtractRequest {
   /**
    * @minItems 1
-   * @maxItems 5
+   * @maxItems 3
    */
   descriptions: [BusinessDescription, ...BusinessDescription[]];
 }
@@ -263,7 +263,7 @@ export interface DraftBusiness {
  */
 export interface Draft {
   /**
-   * @maxItems 5
+   * @maxItems 3
    */
   businesses: DraftBusiness[];
   /**
