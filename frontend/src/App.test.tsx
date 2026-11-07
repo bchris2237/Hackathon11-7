@@ -56,6 +56,38 @@ describe("App shell", () => {
   });
 });
 
+describe("App live mode", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("shows the live banner, no SIMULATED label, and a live failure without substitution", async () => {
+    vi.stubEnv("VITE_DATA_MODE", "live");
+    mockFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    render(<App />);
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent(/LIVE MODE/);
+    expect(screen.getByTestId("mode-banner")).not.toHaveTextContent(/SIMULATED/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Backend unavailable/);
+    expect(screen.queryByText(/Backend OK/)).not.toBeInTheDocument();
+  });
+
+  it("flags a backend whose mode differs from the configured mode", async () => {
+    vi.stubEnv("VITE_DATA_MODE", "live");
+    mockFetch(async () => Response.json({ status: "ok", schemaVersion: "1", commit: "abc", mode: "fixture" }));
+    render(<App />);
+    expect(await screen.findByText(/Mode mismatch/)).toBeInTheDocument();
+  });
+
+  it("fixture banner says SIMULATED and a skip link plus both panels exist", () => {
+    mockFetch(() => new Promise(() => {}));
+    render(<App />);
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent(/SIMULATED/);
+    expect(screen.getByRole("link", { name: /skip to workspace/i })).toHaveAttribute("href", "#workspace");
+    expect(screen.getByRole("heading", { name: "Businesses and scenario" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Results and backend" })).toBeInTheDocument();
+  });
+});
+
 describe("readConfig", () => {
   it("defaults to fixture mode and the local backend", () => {
     expect(readConfig({})).toEqual({ apiBaseUrl: "http://127.0.0.1:8000", dataMode: "fixture", configError: null });
