@@ -7,9 +7,9 @@ Results below were observed on **2026-11-07 14:13 to 14:14 (UTC-08:00)**, Window
 
 | Item | Status |
 |---|---|
-| Foundation committed and pushed | **NOT DONE.** Intentionally left for Developer 2 after review. Base commit is `2ae32ea` on `main`; every Phase 0 file is untracked |
+| Foundation committed and pushed | **DONE.** Pushed to `main` (`35a95fe`, then the exactly-3 contract change `0905883`). Tag `phase-0-foundation` points at `0905883` (pushed 2026-11-07) |
 | Local checks (below) | All passed on the author's machine |
-| Reproduced from a fresh checkout by teammates | **PENDING** (needs the commit first, then each developer) |
+| Reproduced from a fresh checkout by teammates | **REPORTED, not independently verified.** Developer 2 reported on 2026-11-07 that Developers 1 and 3 confirmed. There is no written confirmation from them in the repo and the assistant did not observe it |
 | AWS / Bedrock / SAM / Amplify | **N/A for Phase 0.** Nothing deployed, no credentials used |
 | Optimizer, extraction, simulation, certificates, real UI | **INCOMPLETE** by design (A/B/C prompts) |
 | Human understanding reviews | **PENDING** for all three developers |
@@ -87,7 +87,7 @@ Notes on these results:
   comma-separated allow-list and unlisted origins get no CORS header (tested).
 - **NOT RUN:** Python dependency audit (`pip-audit` is not installed); a dedicated OpenAPI linter (the
   YAML is parsed and every `$ref` is resolved by a test, nothing more); e2e on macOS/Linux or Firefox/WebKit;
-  a clone of a committed checkout (nothing is committed).
+  a clone of the pushed commit by the assistant (teammate clones are only reported, see the status table).
 
 ## Schema parity output
 
@@ -163,7 +163,7 @@ Tick only after you have actually done it. Leave unchecked otherwise.
 **Developer 2 (backend / contracts)**
 - [ ] Review `backend/app.py`, `config.py`, `local.py`: `live` refusal, 503 `NOT_IMPLEMENTED`, CORS allow-list
 - [ ] Confirm the pending validator list in `docs/contracts.md` is the B-track's responsibility
-- [ ] Commit and push the foundation (commands in `docs/ownership-and-branches.md`), tag `phase-0-foundation`
+- [x] Commit and push the foundation (commands in `docs/ownership-and-branches.md`), tag `phase-0-foundation` (done 2026-11-07, tag at `0905883`)
 - [ ] Confirm no secrets or build output are staged (`git diff --staged --stat`)
 
 **Developer 3 (frontend)**
@@ -174,7 +174,7 @@ Tick only after you have actually done it. Leave unchecked otherwise.
 
 ## Pending issues and limitations
 
-1. Foundation is uncommitted (Developer 2 action).
+1. ~~Foundation is uncommitted.~~ Resolved: pushed and tagged `phase-0-foundation` on 2026-11-07.
 2. Business count: the schema now enforces exactly 3 (changed after the first push; see `docs/contracts.md`).
    Decided: Developers 1 and 3 agreed in person on 2026-11-07 (reported by Developer 2). The first push (`35a95fe`)
    allowed 3 to 5, so anyone who cloned before the next push must pull.
@@ -196,12 +196,12 @@ Tick only after you have actually done it. Leave unchecked otherwise.
 
 | Track | Can start when | Starting point | Blocker today |
 |---|---|---|---|
-| **A1** (Developer 1) | Foundation is pushed and Developer 1 has branched `feature/optimizer` | `contracts/models.py`, `fixtures/*.json`, `optimizer/__init__.py` placeholder, `tests/optimizer/` | Foundation not yet committed |
-| **B1** (Developer 2) | Immediately after committing; branch `feature/backend` | `backend/app.py` request handler, `config.py`, `contracts/models.py`, `tests/backend/` | Commit and push the foundation |
-| **C1** (Developer 3) | Foundation is pushed and Developer 3 has branched `feature/frontend` | `frontend/src/`, `contracts/models.ts`, `fixtures/*.json`, `tests/e2e/` | Foundation not yet committed |
+| **A1** (Developer 1) | Foundation is pushed and Developer 1 has branched `feature/optimizer` | `contracts/models.py`, `fixtures/*.json`, `optimizer/__init__.py` placeholder, `tests/optimizer/` | None. Branch `feature/optimizer` from the tag or `main` |
+| **B1** (Developer 2) | Done: B1 committed on `feature/backend` (`ef99cf0`); see `docs/compliance/B1.md` | `backend/app.py` request handler, `config.py`, `contracts/models.py`, `tests/backend/` | None |
+| **C1** (Developer 3) | Foundation is pushed and Developer 3 has branched `feature/frontend` | `frontend/src/`, `contracts/models.ts`, `fixtures/*.json`, `tests/e2e/` | None. Branch `feature/frontend` from the tag or `main` |
 
-**Verdict:** the code is ready for A1, B1 and C1 on the author's machine. The team gate is **not open** until the
-foundation is committed, pushed, tagged and reproduced by Developers 1 and 3 from a fresh clone.
+**Verdict (updated 2026-11-07):** the foundation is committed, pushed and tagged. Teammate reproduction is reported by
+Developer 2 but not independently verified. The gate is treated as open for A1, B1 and C1.
 
 ## Understanding reviews (human confirmation)
 

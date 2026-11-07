@@ -1,7 +1,7 @@
 # Compliance record: Phase 0 (foundation)
 
 Author of the changes: Developer 2's role (initial scaffold), executed by the coding assistant.
-Date: 2026-11-07. Commit: **none yet** (base `2ae32ea`, foundation untracked).
+Date: 2026-11-07. Commits: `35a95fe` (foundation) and `0905883` (exactly-3 contract change), tagged `phase-0-foundation` at `0905883`.
 
 ## Design explanation
 
@@ -56,8 +56,8 @@ Status: IMPLEMENTED, SIMULATED or INCOMPLETE. Deployment: VERIFIED, UNVERIFIED o
 
 ## Limitations
 
-See "Pending issues and limitations" in `docs/phase-0-checklist.md`. Short version: nothing is committed,
-only `/health` works, nothing touches AWS, and several runtime validations are deferred to the B and A tracks.
+See "Pending issues and limitations" in `docs/phase-0-checklist.md`. Short version: the foundation is pushed and tagged,
+only `/health` worked in Phase 0 (B1 later added the full router), nothing touches AWS, and several runtime validations are deferred to the B and A tracks.
 
 ## Judge questions with grounded answers
 
