@@ -13,6 +13,7 @@ import type {
   HealthResponse,
   OptimizeRequest,
   OptimizeResponse,
+  Result,
   SimulateRequest,
   SimulateResponse,
 } from "../../../contracts/models";
@@ -73,6 +74,32 @@ export function isHealthResponse(value: unknown): value is HealthResponse {
     v.schemaVersion === "1" &&
     typeof v.commit === "string" &&
     (v.mode === "live" || v.mode === "fixture")
+  );
+}
+
+/** Structural check of a v1 Result, including "numbers are null only when infeasible". */
+export function isResult(value: unknown): value is Result {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, any>;
+  if (r.schemaVersion !== "1" || !Array.isArray(r.assignments) || !Array.isArray(r.reasons)) return false;
+  if (!r.reasons.every((x: any) => typeof x?.code === "string" && typeof x?.message === "string")) return false;
+  if (r.status === "infeasible") {
+    return r.assignments.length === 0 && r.businessMetrics === null && r.totals === null && r.certificate === null;
+  }
+  if (r.status !== "collaboration" && r.status !== "no_exchange") return false;
+  const metricKeys = ["baselineMinutes", "productionMinutes", "coordinationMinutes", "effortMinutes", "netSavingsMinutes"];
+  return (
+    r.assignments.every(
+      (a: any) =>
+        typeof a?.deliverableId === "string" && typeof a?.providerId === "string" && Number.isInteger(a?.minutes),
+    ) &&
+    Array.isArray(r.businessMetrics) &&
+    r.businessMetrics.every(
+      (m: any) => typeof m?.businessId === "string" && metricKeys.every((k) => Number.isInteger(m?.[k])),
+    ) &&
+    typeof r.totals === "object" &&
+    r.totals !== null &&
+    [...metricKeys, "grossSavingsMinutes"].every((k) => Number.isInteger(r.totals[k]))
   );
 }
 
@@ -191,8 +218,12 @@ export class ApiClient {
     }
     return body as ConfirmResponse;
   }
-  optimize(req: OptimizeRequest, options?: CallOptions): Promise<OptimizeResponse> {
-    return this.post("/optimize", req, options);
+  async optimize(req: OptimizeRequest, options?: CallOptions): Promise<OptimizeResponse> {
+    const body = await this.post<OptimizeRequest, OptimizeResponse>("/optimize", req, options);
+    if (!isResult(body.result)) {
+      throw new ApiUnavailableError("Backend /optimize response does not match the v1 contract.");
+    }
+    return body;
   }
   simulate(req: SimulateRequest, options?: CallOptions): Promise<SimulateResponse> {
     return this.post("/simulate", req, options);

@@ -3,6 +3,7 @@ import type { HealthResponse } from "../../contracts/models";
 import { ApiClient, describeError } from "./lib/api";
 import BusinessForm from "./components/BusinessForm";
 import ExtractionReview from "./components/ExtractionReview";
+import OptimizePanel from "./components/OptimizePanel";
 import { readConfig } from "./config";
 import { initialState, scenarioReducer, validateForm } from "./state/scenario";
 
@@ -165,6 +166,13 @@ export default function App() {
                 ? "A result for the current inputs is available."
                 : "No result. Results and certificates are cleared whenever the inputs change."}
             </p>
+            <OptimizePanel
+              client={client}
+              confirmed={scenario.confirmed}
+              version={scenario.version}
+              result={scenario.result}
+              onResult={(forVersion, result) => dispatch({ type: "set_result", forVersion, result })}
+            />
             <div className="mt-3" data-testid="health-state" aria-live="polite">
               {state.kind === "checking" && <p>Checking /health…</p>}
               {state.kind === "ok" && (

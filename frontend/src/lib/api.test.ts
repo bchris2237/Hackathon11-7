@@ -13,11 +13,11 @@ const stubFetch = (impl: (url: string, init?: RequestInit) => Promise<Response>)
 
 describe("ApiClient", () => {
   it("posts JSON to the right URL and returns a matching-mode body", async () => {
-    stubFetch(async () => Response.json({ result: {}, mode: "live" }));
-    const res = await client().optimize({ scenario });
+    stubFetch(async () => Response.json({ text: "hi", mode: "live" }));
+    const res = await client().explain({ scenario, result: {} as never });
     expect(res.mode).toBe("live");
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("http://api.test/optimize");
+    expect(url).toBe("http://api.test/explain");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body).scenario.schemaVersion).toBe("1");
   });
