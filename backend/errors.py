@@ -75,11 +75,26 @@ def clean_request_id(value: object) -> str:
     return cleaned or "unknown"
 
 
+def format_path(loc: Sequence[object]) -> str:
+    """One path style everywhere: scenario.businesses[0].estimates[2].service (indexes in brackets).
+
+    Keeps the 'fields' list consistent across /extract (missingFields), /confirm and every 422, so a UI needs
+    one parser. Only the field names and indexes are used; never values.
+    """
+    path = ""
+    for part in loc:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        else:
+            path += ("." if path else "") + clean_text(part)
+    return path or "(body)"
+
+
 def from_pydantic(exc: ValidationError) -> ApiError:
     """Turn a Pydantic error into a 422 listing only field PATHS (never values or error text)."""
     fields: list[str] = []
     for item in exc.errors(include_url=False, include_context=False, include_input=False):
-        path = ".".join(clean_text(part) for part in item["loc"]) or "(body)"
+        path = format_path(item["loc"])
         if path not in fields:
             fields.append(path)
         if len(fields) >= MAX_REPORTED_FIELDS:

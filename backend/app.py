@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import binascii
 import concurrent.futures
+import dataclasses
 import json
 import logging
 import re
@@ -43,6 +44,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from backend.config import ConfigError, Settings, load_settings
+from backend.confirmation import confirm_scenario, validate_scenario
 from backend.errors import (
     ApiError,
     clean_request_id,
@@ -125,15 +127,16 @@ class Adapters:
 def default_adapters(settings: Settings | None = None, env: Mapping[str, str] | None = None) -> Adapters:
     """Production wiring. Only REAL adapters are ever built here; fixtures live in tests.
 
-    No arguments -> empty (every route 503). With settings:
-      * fixture mode -> still empty. A real Bedrock reply is labelled 'live', so wiring it into a
-        fixture-mode app would be rejected by the mode check anyway;
-      * live mode -> /extract uses Bedrock if BEDROCK_MODEL_ID and AWS_REGION are set; otherwise it
-        answers 503 NOT_CONFIGURED. No model id or region is ever assumed.
-    Other routes stay unwired until their prompts (B3+).
+    * /confirm is always wired (B3). It is deterministic validation with no AWS call and no mode.
+    * fixture mode (or no settings) -> nothing else. A real Bedrock reply is labelled 'live', so wiring it
+      into a fixture-mode app would be rejected by the mode check anyway;
+    * live mode -> /extract uses Bedrock if BEDROCK_MODEL_ID and AWS_REGION are set; otherwise it
+      answers 503 NOT_CONFIGURED. No model id or region is ever assumed.
+    Other routes stay unwired until their prompts (B4+): /optimize still answers 503 NOT_IMPLEMENTED.
     """
+    base = Adapters(confirm=confirm_scenario)
     if settings is None or settings.mode != "live":
-        return Adapters()
+        return base
 
     import os
 
@@ -150,10 +153,12 @@ def default_adapters(settings: Settings | None = None, env: Mapping[str, str] | 
                 "Extraction is not configured: the server needs BEDROCK_MODEL_ID and AWS_REGION.",
             )
 
-        return Adapters(extract=not_configured)
+        return dataclasses.replace(base, extract=not_configured)
 
     client = BedrockClient(bedrock_settings)
-    return Adapters(extract=BedrockExtractor(client, time_budget_seconds=settings.adapter_timeout_seconds))
+    return dataclasses.replace(
+        base, extract=BedrockExtractor(client, time_budget_seconds=settings.adapter_timeout_seconds)
+    )
 
 
 @dataclass(frozen=True)
@@ -347,6 +352,10 @@ class App:
     @staticmethod
     def _check_request_rules(model: BaseModel) -> None:
         """Contract rules JSON Schema states but the generated Pydantic models cannot express."""
+        if isinstance(model, (ConfirmRequest, OptimizeRequest)):
+            # Same checks for both routes, run before any adapter. Routes that take a scenario and are
+            # built later (simulate, explain, certificates, profiles) must call this too.
+            validate_scenario(model.scenario)
         if isinstance(model, SimulateRequest) and model.text is not None:
             offending = [name for name, bad in (("changes", bool(model.changes)), ("apply", model.apply)) if bad]
             if offending:

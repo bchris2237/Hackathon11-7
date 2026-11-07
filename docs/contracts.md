@@ -51,10 +51,15 @@ certificate; any other status must have them); `Change` accepts only the three t
 These cannot be expressed in JSON Schema. Phase 0 only checks them on the fixtures
 (`test_fixture_semantic_rules`). The B-track and A-track validators must enforce them at runtime:
 
-- business ids unique; deliverable ids unique
-- every `ownerId` references an existing business; every `Change.businessId` references one
-- at most one estimate per service per business
-- each owner has an estimate for its own required service, otherwise **422 `MISSING_BASELINE`**
+- business ids unique; deliverable ids unique: **enforced since B3** (`validate_scenario` in `backend/confirmation.py`, used by `/confirm` and `/optimize`)
+- every `ownerId` references an existing business: **enforced since B3**. Every `Change.businessId` references one: still open (simulate prompt)
+- at most one estimate per service per business: **enforced since B3**
+- each owner has an estimate for its own required service, otherwise **422 `MISSING_BASELINE`**: **enforced since B3**
+  (fields look like `scenario.businesses[2].estimates.coding`)
+
+`fields` paths use one style on every route: names joined by dots, array indexes in brackets
+(`scenario.businesses[0].estimates[2].service`). Since B3 this includes schema errors, which used to print
+`scenario.businesses.0.estimates.2.service`. A UI needs one parser for `fields` and for `/extract`'s `missingFields` paths.
 - `SimulateRequest`: text together with non-empty `changes`, or text with `apply: true`, is rejected.
   The JSON Schema rejects it, but the generated Pydantic model cannot, so two parity cases are marked xfail.
   **Enforced since B1** in `App._check_request_rules` (`backend/app.py`) and tested in `tests/backend/test_routes.py`
