@@ -1,7 +1,7 @@
 // Editable scenario form state: text fields in, validated v1 Scenario out.
 // Everything here is pure (no I/O, no globals mutated), so it is directly unit-testable.
 // Internally all durations are integer minutes; the UI shows hours only when that is exact.
-import type { Result, Scenario, Service } from "../../../contracts/models";
+import type { Draft, Result, Scenario, Service } from "../../../contracts/models";
 import canonicalFixture from "../../../fixtures/canonical.json";
 
 export const SERVICES: readonly Service[] = ["coding", "design", "writing"];
@@ -193,11 +193,15 @@ export interface ScenarioState {
   version: number;
   /** Optimization result for the current form version. Cleared by every edit. */
   result: Result | null;
+  /** Backend-confirmed scenario for the current form version. Cleared by every edit. */
+  confirmed: Scenario | null;
 }
 
 export type ScenarioAction =
   | { type: "load_canonical" }
   | { type: "reset" }
+  | { type: "apply_draft"; form: ScenarioForm }
+  | { type: "set_confirmed"; forVersion: number; scenario: Scenario }
   | { type: "edit_business"; index: number; patch: BusinessPatch }
   | { type: "set_result"; forVersion: number; result: Result };
 
@@ -219,15 +223,51 @@ export function blankBusiness(): FormBusiness {
 }
 
 export function initialState(): ScenarioState {
-  return { form: { businesses: [blankBusiness(), blankBusiness(), blankBusiness()] }, version: 0, result: null };
+  return {
+    form: { businesses: [blankBusiness(), blankBusiness(), blankBusiness()] },
+    version: 0,
+    result: null,
+    confirmed: null,
+  };
+}
+
+/**
+ * Turns an extraction draft into editable form state. Null/absent values become blank
+ * fields (never 0), so validation keeps the scenario unconfirmable until the user fills them.
+ * `descriptions` (id -> original text) is kept so the user can re-run extraction.
+ */
+export function draftToForm(draft: Draft, descriptions: Record<string, string>): ScenarioForm {
+  const businesses = draft.businesses.slice(0, 3).map((b): FormBusiness => {
+    const deliverable = draft.deliverables.find((d) => d.ownerId === b.id);
+    const estimates: Record<Service, string> = { coding: "", design: "", writing: "" };
+    for (const e of b.estimates ?? []) {
+      if (SERVICES.includes(e.service)) estimates[e.service] = formatDuration(e.minutes);
+    }
+    return {
+      id: b.id,
+      name: b.name,
+      description: descriptions[b.id] ?? "",
+      capacity: b.capacityMinutes === null ? "" : formatDuration(b.capacityMinutes),
+      coordination: b.coordinationMinutes === null ? "" : formatDuration(b.coordinationMinutes),
+      estimates,
+      requirement: { deliverableId: deliverable?.id ?? "", service: deliverable?.service ?? "coding" },
+    };
+  });
+  while (businesses.length < 3) businesses.push(blankBusiness());
+  return { businesses };
 }
 
 export function scenarioReducer(state: ScenarioState, action: ScenarioAction): ScenarioState {
   switch (action.type) {
     case "load_canonical":
-      return { form: loadCanonicalForm(), version: state.version + 1, result: null };
+      return { form: loadCanonicalForm(), version: state.version + 1, result: null, confirmed: null };
     case "reset":
       return { ...initialState(), version: state.version + 1 };
+    case "apply_draft":
+      return { form: action.form, version: state.version + 1, result: null, confirmed: null };
+    case "set_confirmed":
+      // Only the exact form version that was sent can become confirmed.
+      return action.forVersion === state.version ? { ...state, confirmed: action.scenario } : state;
     case "edit_business": {
       const current = state.form.businesses[action.index];
       if (!current) return state;
@@ -240,7 +280,7 @@ export function scenarioReducer(state: ScenarioState, action: ScenarioAction): S
       };
       const businesses = state.form.businesses.map((b, i) => (i === action.index ? next : b));
       // Any edit invalidates the prior result and its certificate.
-      return { form: { businesses }, version: state.version + 1, result: null };
+      return { form: { businesses }, version: state.version + 1, result: null, confirmed: null };
     }
     case "set_result":
       // A result computed for an older form version must never be shown.

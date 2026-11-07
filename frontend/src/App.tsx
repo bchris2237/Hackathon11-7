@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import type { HealthResponse } from "../../contracts/models";
 import { ApiClient, describeError } from "./lib/api";
 import BusinessForm from "./components/BusinessForm";
+import ExtractionReview from "./components/ExtractionReview";
 import { readConfig } from "./config";
 import { initialState, scenarioReducer, validateForm } from "./state/scenario";
 
@@ -11,8 +12,6 @@ type HealthState =
   | { kind: "unavailable"; message: string };
 
 const NOT_BUILT = [
-  "Extraction of a draft from descriptions",
-  "Human confirmation of the draft scenario",
   "Optimization, exchange graph and certificate",
   "Natural-language what-if simulation",
 ];
@@ -27,7 +26,6 @@ export default function App() {
   const isFixture = config.dataMode === "fixture";
   const [scenario, dispatch] = useReducer(scenarioReducer, undefined, initialState);
   const validation = useMemo(() => validateForm(scenario.form), [scenario.form]);
-  const [continueNote, setContinueNote] = useState(false);
 
   useEffect(() => {
     // The cleanup aborts the request so a late response can never overwrite newer state.
@@ -101,7 +99,6 @@ export default function App() {
                 type="button"
                 className="rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium"
                 onClick={() => {
-                  setContinueNote(false);
                   dispatch({ type: "load_canonical" });
                 }}
               >
@@ -111,7 +108,6 @@ export default function App() {
                 type="button"
                 className="rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium"
                 onClick={() => {
-                  setContinueNote(false);
                   dispatch({ type: "reset" });
                 }}
               >
@@ -126,7 +122,6 @@ export default function App() {
                   business={business}
                   errors={validation.errors}
                   onChange={(i, patch) => {
-                    setContinueNote(false);
                     dispatch({ type: "edit_business", index: i, patch });
                   }}
                 />
@@ -141,19 +136,15 @@ export default function App() {
                 </p>
               )}
             </div>
-            <button
-              type="button"
-              disabled={!validation.scenario}
-              className="mt-2 rounded bg-blue-800 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
-              onClick={() => setContinueNote(true)}
-            >
-              Continue to confirmation
-            </button>
-            {continueNote && (
-              <p role="status" className="mt-2 text-sm text-slate-700">
-                The confirmation step is not built yet. Nothing was sent to the backend.
-              </p>
-            )}
+            <ExtractionReview
+              client={client}
+              form={scenario.form}
+              version={scenario.version}
+              validation={validation}
+              confirmed={scenario.confirmed}
+              onApplyDraft={(form) => dispatch({ type: "apply_draft", form })}
+              onConfirmed={(forVersion, confirmed) => dispatch({ type: "set_confirmed", forVersion, scenario: confirmed })}
+            />
             <h3 className="mt-4 text-sm font-semibold uppercase tracking-wide text-slate-600">Not built yet</h3>
             <ul className="mt-2 list-disc pl-5 text-slate-700">
               {NOT_BUILT.map((item) => (

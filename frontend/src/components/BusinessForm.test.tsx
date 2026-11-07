@@ -13,7 +13,7 @@ describe("business entry screen", () => {
   it("starts invalid with Continue disabled, then loads the sample and enables it", async () => {
     const user = userEvent.setup();
     renderApp();
-    const next = screen.getByRole("button", { name: "Continue to confirmation" });
+    const next = screen.getByRole("button", { name: "Confirm scenario" });
     expect(next).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Load fictional sample" }));
     expect(screen.getByLabelText("Business 1 name")).toHaveValue("DevCo");
@@ -33,8 +33,8 @@ describe("business entry screen", () => {
     await user.clear(capacity);
     await user.type(capacity, "0.001");
     expect(capacity).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText(/sub-minute precision/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue to confirmation" })).toBeDisabled();
+    expect(screen.getAllByText(/sub-minute precision/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Confirm scenario" })).toBeDisabled();
   });
 
   it("rejects a blank ID and reset returns to blank", async () => {

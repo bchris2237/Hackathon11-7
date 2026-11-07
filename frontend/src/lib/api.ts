@@ -76,6 +76,22 @@ export function isHealthResponse(value: unknown): value is HealthResponse {
   );
 }
 
+export function isExtractResponse(value: unknown): value is ExtractResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, any>;
+  return (
+    typeof v.draft === "object" &&
+    v.draft !== null &&
+    Array.isArray(v.draft.businesses) &&
+    Array.isArray(v.draft.deliverables) &&
+    Array.isArray(v.missingFields) &&
+    v.missingFields.every((f: unknown) => typeof f === "string") &&
+    Array.isArray(v.provenance) &&
+    v.provenance.every((p: any) => typeof p?.path === "string" && typeof p?.quote === "string") &&
+    !("confirmed" in v.draft) // extraction never confirms
+  );
+}
+
 /** Readable one-line text for any error thrown by this module. */
 export function describeError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -156,15 +172,24 @@ export class ApiClient {
     return body;
   }
 
-  extract(req: ExtractRequest, options?: CallOptions): Promise<ExtractResponse> {
-    return this.post("/extract", req, options);
+  async extract(req: ExtractRequest, options?: CallOptions): Promise<ExtractResponse> {
+    const body = await this.post<ExtractRequest, ExtractResponse>("/extract", req, options);
+    if (!isExtractResponse(body)) {
+      throw new ApiUnavailableError("Backend /extract response does not match the v1 contract.");
+    }
+    return body;
   }
-  confirm(req: ConfirmRequest, options?: CallOptions): Promise<ConfirmResponse> {
-    return this.request(
+  async confirm(req: ConfirmRequest, options?: CallOptions): Promise<ConfirmResponse> {
+    const body = await this.request(
       "/confirm",
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) },
       options?.signal,
-    ) as Promise<ConfirmResponse>;
+    );
+    const scenario = (body as { scenario?: { confirmed?: unknown; schemaVersion?: unknown } } | null)?.scenario;
+    if (!scenario || scenario.confirmed !== true || scenario.schemaVersion !== "1") {
+      throw new ApiUnavailableError("Backend /confirm response does not match the v1 contract.");
+    }
+    return body as ConfirmResponse;
   }
   optimize(req: OptimizeRequest, options?: CallOptions): Promise<OptimizeResponse> {
     return this.post("/optimize", req, options);
