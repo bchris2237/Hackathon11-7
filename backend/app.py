@@ -122,9 +122,38 @@ class Adapters:
     certificates: Callable[[CertificateRequest], Any] | None = None
 
 
-def default_adapters() -> Adapters:
-    """Production wiring. Intentionally empty until the real adapters exist (later B prompts)."""
-    return Adapters()
+def default_adapters(settings: Settings | None = None, env: Mapping[str, str] | None = None) -> Adapters:
+    """Production wiring. Only REAL adapters are ever built here; fixtures live in tests.
+
+    No arguments -> empty (every route 503). With settings:
+      * fixture mode -> still empty. A real Bedrock reply is labelled 'live', so wiring it into a
+        fixture-mode app would be rejected by the mode check anyway;
+      * live mode -> /extract uses Bedrock if BEDROCK_MODEL_ID and AWS_REGION are set; otherwise it
+        answers 503 NOT_CONFIGURED. No model id or region is ever assumed.
+    Other routes stay unwired until their prompts (B3+).
+    """
+    if settings is None or settings.mode != "live":
+        return Adapters()
+
+    import os
+
+    from backend.bedrock import BedrockClient, load_bedrock_settings
+    from backend.extraction import BedrockExtractor
+
+    bedrock_settings = load_bedrock_settings(os.environ if env is None else env)
+    if bedrock_settings is None:
+
+        def not_configured(_request: ExtractRequest) -> Any:
+            raise ApiError(
+                503,
+                "NOT_CONFIGURED",
+                "Extraction is not configured: the server needs BEDROCK_MODEL_ID and AWS_REGION.",
+            )
+
+        return Adapters(extract=not_configured)
+
+    client = BedrockClient(bedrock_settings)
+    return Adapters(extract=BedrockExtractor(client, time_budget_seconds=settings.adapter_timeout_seconds))
 
 
 @dataclass(frozen=True)
@@ -446,7 +475,8 @@ def get_app() -> App:
     global _APP
     with _APP_LOCK:
         if _APP is None:
-            _APP = App(load_settings(), default_adapters())
+            settings = load_settings()
+            _APP = App(settings, default_adapters(settings))
         return _APP
 
 

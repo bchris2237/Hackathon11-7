@@ -86,7 +86,12 @@ def main() -> int:
         print(f"Cannot start: {exc}", file=sys.stderr)
         return 2
 
-    app = App(settings, default_adapters())
+    try:
+        adapters = default_adapters(settings)
+    except ConfigError as exc:
+        print(f"Cannot start: {exc}", file=sys.stderr)
+        return 2
+    app = App(settings, adapters)
     server = ThreadingHTTPServer((settings.host, settings.port), make_handler(app))
     server.daemon_threads = True
     label = "FIXTURE (simulated, no AWS)" if settings.mode == "fixture" else "LIVE (real adapters required)"
