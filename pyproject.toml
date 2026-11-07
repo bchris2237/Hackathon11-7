@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trademind"
+version = "0.0.0"
+description = "TradeMind: deterministic effort-exchange optimizer with a Bedrock language layer (hackathon project)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+# Direct dependencies are pinned exactly. The full transitive tree, with hashes,
+# is in requirements.lock. Versions are recorded in docs/versions.md.
+dependencies = [
+  "pydantic==2.14.3",
+  "boto3==1.43.126",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.2.0",
+  "hypothesis==6.170.15",
+  "jsonschema==4.26.0",
+  "pyyaml==6.0.3",
+  "datamodel-code-generator==0.91.0",
+]
+
+[tool.setuptools]
+# Flat monorepo layout: these three top-level packages are importable once
+# installed with `python -m pip install -e '.[dev]'`.
+packages = ["backend", "optimizer", "contracts"]
+
+[tool.setuptools.package-data]
+contracts = ["*.json", "*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/optimizer", "tests/backend"]
+addopts = "-ra"

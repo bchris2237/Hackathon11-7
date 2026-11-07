@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1",
+  "businesses": [
+    {
+      "id": "devco",
+      "name": "DevCo",
+      "capacityMinutes": 600,
+      "coordinationMinutes": 60,
+      "estimates": [
+        { "service": "coding", "minutes": 180 },
+        { "service": "design", "minutes": 480 }
+      ]
+    },
+    {
+      "id": "designco",
+      "name": "DesignCo",
+      "capacityMinutes": 600,
+      "coordinationMinutes": 60,
+      "estimates": [
+        { "service": "design", "minutes": 180 },
+        { "service": "writing", "minutes": 480 }
+      ]
+    },
+    {
+      "id": "copyco",
+      "name": "CopyCo",
+      "capacityMinutes": 600,
+      "coordinationMinutes": 60,
+      "estimates": [
+        { "service": "writing", "minutes": 180 },
+        { "service": "coding", "minutes": 480 }
+      ]
+    }
+  ],
+  "deliverables": [
+    { "id": "d-design", "ownerId": "devco", "service": "design" },
+    { "id": "d-writing", "ownerId": "designco", "service": "writing" },
+    { "id": "d-coding", "ownerId": "copyco", "service": "coding" }
+  ],
+  "confirmed": true
+}

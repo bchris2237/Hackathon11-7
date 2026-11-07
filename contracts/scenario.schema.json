@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trademind.example/contracts/scenario.schema.json",
+  "title": "Scenario",
+  "description": "TradeMind v1 frozen contract. A confirmed scenario: businesses, their per-service effort estimates (integer minutes) and the deliverables each business needs. Semantic rules JSON Schema cannot express (unique ids, ownerId references, unique service per business, MISSING_BASELINE) are enforced by validators and listed in docs/contracts.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "businesses", "deliverables", "confirmed"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "businesses": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/Business" }
+    },
+    "deliverables": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/Deliverable" }
+    },
+    "confirmed": { "const": true }
+  },
+  "$defs": {
+    "Slug": {
+      "title": "Slug",
+      "description": "Nonempty ASCII identifier. Identity is the id, never the display name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$"
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Frozen service enumeration.",
+      "enum": ["coding", "design", "writing"]
+    },
+    "NonNegativeMinutes": {
+      "title": "NonNegativeMinutes",
+      "description": "Integer minutes, 0..1000000 (capacity and coordination).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "PositiveMinutes": {
+      "title": "PositiveMinutes",
+      "description": "Integer minutes, 1..1000000 (effort estimates). A missing estimate means unsupported, never zero.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "Estimate": {
+      "title": "Estimate",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "minutes"],
+      "properties": {
+        "service": { "$ref": "#/$defs/Service" },
+        "minutes": { "$ref": "#/$defs/PositiveMinutes" }
+      }
+    },
+    "Business": {
+      "title": "Business",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "capacityMinutes", "coordinationMinutes", "estimates"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Slug" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "capacityMinutes": { "$ref": "#/$defs/NonNegativeMinutes" },
+        "coordinationMinutes": { "$ref": "#/$defs/NonNegativeMinutes" },
+        "estimates": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/Estimate" }
+        }
+      }
+    },
+    "Deliverable": {
+      "title": "Deliverable",
+      "description": "One indivisible unit of work owned (required) by a business.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ownerId", "service"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Slug" },
+        "ownerId": { "$ref": "#/$defs/Slug" },
+        "service": { "$ref": "#/$defs/Service" }
+      }
+    }
+  }
+}

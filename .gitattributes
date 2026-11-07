@@ -1,0 +1,6 @@
+# Generated files and fixtures are compared byte-for-byte by parity checks,
+# so keep LF line endings on every platform.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

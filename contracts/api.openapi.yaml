@@ -1,0 +1,176 @@
+openapi: 3.1.0
+info:
+  title: TradeMind API
+  version: "1"
+  description: |
+    TradeMind v1 frozen API contract. Wire shapes are defined once in
+    api.schema.json, scenario.schema.json and result.schema.json; this file
+    only describes routes. Phase 0 implements GET /health only. Every other
+    route answers 503 NOT_IMPLEMENTED until its prompt is done.
+    Request bodies are limited to 32 KiB.
+servers:
+  - url: http://127.0.0.1:8000
+    description: Local development (python -m backend.local)
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness, schema version, commit and mode
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/HealthResponse" }
+  /extract:
+    post:
+      operationId: extract
+      summary: Draft a scenario from business descriptions (never confirms)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "api.schema.json#/$defs/ExtractRequest" }
+      responses:
+        "200":
+          description: Draft with missing fields and provenance
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/ExtractResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /confirm:
+    post:
+      operationId: confirm
+      summary: Validate a human-confirmed scenario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "api.schema.json#/$defs/ConfirmRequest" }
+      responses:
+        "200":
+          description: The validated scenario
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/ConfirmResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /optimize:
+    post:
+      operationId: optimize
+      summary: Deterministic optimization with an embedded certificate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "api.schema.json#/$defs/OptimizeRequest" }
+      responses:
+        "200":
+          description: Result (collaboration, no_exchange or infeasible)
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/OptimizeResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /simulate:
+    post:
+      operationId: simulate
+      summary: Propose (text) or apply (validated changes) a scenario change
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "api.schema.json#/$defs/SimulateRequest" }
+      responses:
+        "200":
+          description: Proposed changes and, when applied, the recalculated result
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/SimulateResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /explain:
+    post:
+      operationId: explain
+      summary: Plain-language explanation of a recomputed result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "api.schema.json#/$defs/ExplainRequest" }
+      responses:
+        "200":
+          description: Explanation text
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/ExplainResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /profiles/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 128 }
+    put:
+      operationId: putProfile
+      summary: "Optional: store a scenario"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "api.schema.json#/$defs/ProfilePutRequest" }
+      responses:
+        "200":
+          description: Stored profile
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/ProfileResponse" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: getProfile
+      summary: "Optional: load a scenario"
+      responses:
+        "200":
+          description: Stored profile
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/ProfileResponse" }
+        "503": { $ref: "#/components/responses/Error" }
+  /certificates:
+    post:
+      operationId: postCertificate
+      summary: "Optional: recompute verification, then store/export a certificate"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "api.schema.json#/$defs/CertificateRequest" }
+      responses:
+        "200":
+          description: Certificate and optional download link
+          content:
+            application/json:
+              schema: { $ref: "api.schema.json#/$defs/CertificateResponse" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+components:
+  responses:
+    Error:
+      description: Error envelope (400 malformed JSON, 422 validation, 429 throttled, 502 model failure, 503 unavailable)
+      content:
+        application/json:
+          schema: { $ref: "api.schema.json#/$defs/ErrorEnvelope" }

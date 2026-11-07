@@ -1,0 +1,16 @@
+{
+  "noExchange": {
+    "description": "Apply to canonical.json. DesignCo's design estimate becomes 600 minutes (10 hours). Self-production stays valid, so the expected outcome is status no_exchange, not infeasible.",
+    "changes": [
+      { "kind": "estimate", "businessId": "designco", "service": "design", "minutes": 600 }
+    ]
+  },
+  "infeasible": {
+    "description": "Apply to canonical.json. Every business has capacity 0, so no allocation is valid: expected status infeasible with null totals and certificate.",
+    "changes": [
+      { "kind": "capacity", "businessId": "devco", "minutes": 0 },
+      { "kind": "capacity", "businessId": "designco", "minutes": 0 },
+      { "kind": "capacity", "businessId": "copyco", "minutes": 0 }
+    ]
+  }
+}

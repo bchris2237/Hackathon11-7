@@ -1,0 +1,104 @@
+{
+  "description": "Cross-language parity cases. The Python (jsonschema + Pydantic) and TypeScript (Ajv) suites both run every case and must agree. scenarioInvalid cases patch fixtures/canonical.json with ops: set / delete / append at a path. In simulate cases the string '$canonical' is replaced by the canonical scenario. Rules JSON Schema cannot express (unique ids, ownerId references, MISSING_BASELINE) are semantic validation, not listed here. Avoid whole-number floats like 600.0: JSON Schema treats them as integers while strict Pydantic does not.",
+  "scenarioInvalid": [
+    { "name": "unknown top-level field", "ops": [{ "op": "set", "path": ["extra"], "value": true }] },
+    { "name": "unknown business field", "ops": [{ "op": "set", "path": ["businesses", 0, "profit"], "value": 5 }] },
+    { "name": "unknown deliverable field", "ops": [{ "op": "set", "path": ["deliverables", 0, "priority"], "value": 1 }] },
+    { "name": "fractional capacity", "ops": [{ "op": "set", "path": ["businesses", 0, "capacityMinutes"], "value": 600.5 }] },
+    { "name": "string minutes", "ops": [{ "op": "set", "path": ["businesses", 0, "capacityMinutes"], "value": "600" }] },
+    { "name": "null capacity in a confirmed scenario", "ops": [{ "op": "set", "path": ["businesses", 0, "capacityMinutes"], "value": null }] },
+    { "name": "negative capacity", "ops": [{ "op": "set", "path": ["businesses", 0, "capacityMinutes"], "value": -1 }] },
+    { "name": "minutes above the 1000000 bound", "ops": [{ "op": "set", "path": ["businesses", 0, "capacityMinutes"], "value": 1000001 }] },
+    { "name": "zero-minute estimate (missing means unsupported, never zero)", "ops": [{ "op": "set", "path": ["businesses", 0, "estimates", 0, "minutes"], "value": 0 }] },
+    { "name": "unknown service", "ops": [{ "op": "set", "path": ["deliverables", 0, "service"], "value": "legal" }] },
+    { "name": "confirmed false", "ops": [{ "op": "set", "path": ["confirmed"], "value": false }] },
+    { "name": "confirmed missing", "ops": [{ "op": "delete", "path": ["confirmed"] }] },
+    { "name": "wrong schema version", "ops": [{ "op": "set", "path": ["schemaVersion"], "value": "2" }] },
+    { "name": "only two businesses", "ops": [{ "op": "delete", "path": ["businesses", 2] }] },
+    { "name": "no deliverables", "ops": [{ "op": "set", "path": ["deliverables"], "value": [] }] },
+    {
+      "name": "seven deliverables",
+      "ops": [
+        { "op": "append", "path": ["deliverables"], "value": { "id": "d-4", "ownerId": "devco", "service": "design" } },
+        { "op": "append", "path": ["deliverables"], "value": { "id": "d-5", "ownerId": "devco", "service": "design" } },
+        { "op": "append", "path": ["deliverables"], "value": { "id": "d-6", "ownerId": "devco", "service": "design" } },
+        { "op": "append", "path": ["deliverables"], "value": { "id": "d-7", "ownerId": "devco", "service": "design" } }
+      ]
+    },
+    {
+      "name": "four estimates on one business",
+      "ops": [
+        { "op": "append", "path": ["businesses", 0, "estimates"], "value": { "service": "writing", "minutes": 60 } },
+        { "op": "append", "path": ["businesses", 0, "estimates"], "value": { "service": "writing", "minutes": 70 } }
+      ]
+    },
+    { "name": "uppercase id", "ops": [{ "op": "set", "path": ["businesses", 0, "id"], "value": "DevCo" }] },
+    { "name": "empty id", "ops": [{ "op": "set", "path": ["businesses", 0, "id"], "value": "" }] },
+    { "name": "missing business name", "ops": [{ "op": "delete", "path": ["businesses", 0, "name"] }] }
+  ],
+  "simulateInvalid": [
+    {
+      "name": "text together with changes",
+      "request": {
+        "scenario": "$canonical",
+        "changes": [{ "kind": "capacity", "businessId": "devco", "minutes": 300 }],
+        "text": "devco loses half a day",
+        "apply": false
+      }
+    },
+    {
+      "name": "text with apply true (text is proposal-only)",
+      "request": { "scenario": "$canonical", "changes": [], "text": "devco loses half a day", "apply": true }
+    },
+    {
+      "name": "unknown change kind",
+      "request": {
+        "scenario": "$canonical",
+        "changes": [{ "kind": "delete", "businessId": "devco", "minutes": 1 }],
+        "apply": true
+      }
+    },
+    {
+      "name": "json-path style change",
+      "request": {
+        "scenario": "$canonical",
+        "changes": [{ "path": "businesses[0].capacityMinutes", "value": 1 }],
+        "apply": true
+      }
+    },
+    {
+      "name": "estimate change without service",
+      "request": {
+        "scenario": "$canonical",
+        "changes": [{ "kind": "estimate", "businessId": "devco", "minutes": 100 }],
+        "apply": true
+      }
+    },
+    {
+      "name": "unknown field on request",
+      "request": { "scenario": "$canonical", "changes": [], "apply": false, "code": "print(1)" }
+    }
+  ],
+  "simulateValid": [
+    {
+      "name": "text proposal",
+      "request": { "scenario": "$canonical", "changes": [], "text": "DesignCo design now takes 10 hours", "apply": false }
+    },
+    {
+      "name": "explicit estimate change applied",
+      "request": {
+        "scenario": "$canonical",
+        "changes": [{ "kind": "estimate", "businessId": "designco", "service": "design", "minutes": 600 }],
+        "apply": true
+      }
+    },
+    {
+      "name": "explicit capacity change not applied",
+      "request": {
+        "scenario": "$canonical",
+        "changes": [{ "kind": "capacity", "businessId": "devco", "minutes": 0 }],
+        "apply": false
+      }
+    }
+  ]
+}

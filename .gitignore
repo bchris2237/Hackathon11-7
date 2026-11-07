@@ -1,0 +1,46 @@
+# Secrets and local configuration (names-only templates live in .env.example)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.aws/
+credentials
+samconfig.local.toml
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+npm-debug.log*
+
+# Test output
+playwright-report/
+test-results/
+blob-report/
+
+# AWS SAM build output
+.aws-sam/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,73 @@
+{
+  "description": "SIMULATED extraction. Fictional descriptions and a hand-written response labelled mode 'fixture'. No model produced this. CopyCo's coordination time is deliberately absent so it stays null and is listed in missingFields.",
+  "request": {
+    "descriptions": [
+      {
+        "id": "devco",
+        "name": "DevCo",
+        "text": "DevCo is a two-person software shop. We can spare 10 hours for outside work. Coding takes us 3 hours per deliverable and design takes us 8 hours. Coordinating with another business costs us nothing extra. We need a design deliverable."
+      },
+      {
+        "id": "designco",
+        "name": "DesignCo",
+        "text": "DesignCo is a small design studio. We have 10 hours available. Design takes 3 hours per deliverable and writing takes us 8 hours. We lose no extra time coordinating. We need a writing deliverable."
+      },
+      {
+        "id": "copyco",
+        "name": "CopyCo",
+        "text": "CopyCo writes marketing copy. We have 10 hours available. Writing takes 3 hours per deliverable and coding takes 8 hours. We need a coding deliverable."
+      }
+    ]
+  },
+  "response": {
+    "draft": {
+      "businesses": [
+        {
+          "id": "devco",
+          "name": "DevCo",
+          "capacityMinutes": 600,
+          "coordinationMinutes": 0,
+          "estimates": [
+            { "service": "coding", "minutes": 180 },
+            { "service": "design", "minutes": 480 }
+          ]
+        },
+        {
+          "id": "designco",
+          "name": "DesignCo",
+          "capacityMinutes": 600,
+          "coordinationMinutes": 0,
+          "estimates": [
+            { "service": "design", "minutes": 180 },
+            { "service": "writing", "minutes": 480 }
+          ]
+        },
+        {
+          "id": "copyco",
+          "name": "CopyCo",
+          "capacityMinutes": 600,
+          "coordinationMinutes": null,
+          "estimates": [
+            { "service": "writing", "minutes": 180 },
+            { "service": "coding", "minutes": 480 }
+          ]
+        }
+      ],
+      "deliverables": [
+        { "id": "d-design", "ownerId": "devco", "service": "design" },
+        { "id": "d-writing", "ownerId": "designco", "service": "writing" },
+        { "id": "d-coding", "ownerId": "copyco", "service": "coding" }
+      ]
+    },
+    "missingFields": ["businesses[2].coordinationMinutes"],
+    "provenance": [
+      { "path": "businesses[0].capacityMinutes", "quote": "We can spare 10 hours for outside work." },
+      { "path": "businesses[0].estimates[0].minutes", "quote": "Coding takes us 3 hours per deliverable" },
+      { "path": "businesses[0].estimates[1].minutes", "quote": "design takes us 8 hours" },
+      { "path": "businesses[1].capacityMinutes", "quote": "We have 10 hours available." },
+      { "path": "businesses[2].capacityMinutes", "quote": "We have 10 hours available." },
+      { "path": "deliverables[0]", "quote": "We need a design deliverable." }
+    ],
+    "mode": "fixture"
+  }
+}

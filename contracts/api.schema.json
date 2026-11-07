@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trademind.example/contracts/api.schema.json",
+  "title": "TradeMindApi",
+  "description": "TradeMind v1 frozen API wire shapes. Every definition lives under $defs; api.openapi.yaml references them. Requests are bounded to 32 KiB by the backend before parsing.",
+  "$defs": {
+    "DataMode": {
+      "title": "DataMode",
+      "description": "'fixture' means explicitly simulated behavior and must be labelled in every UI. 'live' means real adapters.",
+      "enum": ["live", "fixture"]
+    },
+    "ErrorEnvelope": {
+      "title": "ErrorEnvelope",
+      "description": "Every error. 400 malformed JSON, 422 validation, 429 throttled, 502 model failure, 503 unavailable. No fake successful fallbacks.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "fields", "requestId"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "message": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "fields": { "type": "array", "items": { "type": "string" } },
+            "requestId": { "type": "string", "minLength": 1, "maxLength": 128 }
+          }
+        }
+      }
+    },
+    "HealthResponse": {
+      "title": "HealthResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "schemaVersion", "commit", "mode"],
+      "properties": {
+        "status": { "const": "ok" },
+        "schemaVersion": { "const": "1" },
+        "commit": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "mode": { "$ref": "#/$defs/DataMode" }
+      }
+    },
+    "BusinessDescription": {
+      "title": "BusinessDescription",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "text"],
+      "properties": {
+        "id": { "$ref": "scenario.schema.json#/$defs/Slug" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+      }
+    },
+    "ExtractRequest": {
+      "title": "ExtractRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptions"],
+      "properties": {
+        "descriptions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/BusinessDescription" }
+        }
+      }
+    },
+    "DraftBusiness": {
+      "title": "DraftBusiness",
+      "description": "Extraction output. Missing numbers stay null; they are never defaulted to zero.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "capacityMinutes", "coordinationMinutes", "estimates"],
+      "properties": {
+        "id": { "$ref": "scenario.schema.json#/$defs/Slug" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "capacityMinutes": {
+          "oneOf": [{ "type": "null" }, { "$ref": "scenario.schema.json#/$defs/NonNegativeMinutes" }]
+        },
+        "coordinationMinutes": {
+          "oneOf": [{ "type": "null" }, { "$ref": "scenario.schema.json#/$defs/NonNegativeMinutes" }]
+        },
+        "estimates": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "scenario.schema.json#/$defs/Estimate" }
+        }
+      }
+    },
+    "Draft": {
+      "title": "Draft",
+      "description": "An unconfirmed scenario draft. It has no 'confirmed' field: extraction never confirms.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["businesses", "deliverables"],
+      "properties": {
+        "businesses": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/DraftBusiness" }
+        },
+        "deliverables": {
+          "type": "array",
+          "maxItems": 6,
+          "items": { "$ref": "scenario.schema.json#/$defs/Deliverable" }
+        }
+      }
+    },
+    "Provenance": {
+      "title": "Provenance",
+      "description": "A verbatim quote from the user's description supporting the value at 'path'.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "quote"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "ExtractResponse": {
+      "title": "ExtractResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draft", "missingFields", "provenance", "mode"],
+      "properties": {
+        "draft": { "$ref": "#/$defs/Draft" },
+        "missingFields": { "type": "array", "items": { "type": "string" } },
+        "provenance": { "type": "array", "items": { "$ref": "#/$defs/Provenance" } },
+        "mode": { "$ref": "#/$defs/DataMode" }
+      }
+    },
+    "ConfirmRequest": {
+      "title": "ConfirmRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario"],
+      "properties": { "scenario": { "$ref": "scenario.schema.json" } }
+    },
+    "ConfirmResponse": {
+      "title": "ConfirmResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario"],
+      "properties": { "scenario": { "$ref": "scenario.schema.json" } }
+    },
+    "OptimizeRequest": {
+      "title": "OptimizeRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario"],
+      "properties": { "scenario": { "$ref": "scenario.schema.json" } }
+    },
+    "OptimizeResponse": {
+      "title": "OptimizeResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "mode"],
+      "properties": {
+        "result": { "$ref": "result.schema.json" },
+        "mode": { "$ref": "#/$defs/DataMode" }
+      }
+    },
+    "Change": {
+      "title": "Change",
+      "description": "A validated scenario patch. Only these shapes are accepted: no JSON paths, no code, no invented ids.",
+      "oneOf": [
+        {
+          "title": "ScalarChange",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "businessId", "minutes"],
+          "properties": {
+            "kind": { "enum": ["capacity", "coordination"] },
+            "businessId": { "$ref": "scenario.schema.json#/$defs/Slug" },
+            "minutes": { "$ref": "scenario.schema.json#/$defs/NonNegativeMinutes" }
+          }
+        },
+        {
+          "title": "EstimateChange",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "businessId", "service", "minutes"],
+          "properties": {
+            "kind": { "const": "estimate" },
+            "businessId": { "$ref": "scenario.schema.json#/$defs/Slug" },
+            "service": { "$ref": "scenario.schema.json#/$defs/Service" },
+            "minutes": { "$ref": "scenario.schema.json#/$defs/PositiveMinutes" }
+          }
+        }
+      ]
+    },
+    "SimulateRequest": {
+      "title": "SimulateRequest",
+      "description": "Two stages. Text is proposal-only: text requires changes=[] and apply=false. Explicit validated changes with apply=true recalculate deterministically without Bedrock.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "changes", "apply"],
+      "properties": {
+        "scenario": { "$ref": "scenario.schema.json" },
+        "changes": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/Change" } },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "apply": { "type": "boolean" }
+      },
+      "if": { "properties": { "text": true }, "required": ["text"] },
+      "then": {
+        "properties": {
+          "changes": { "maxItems": 0 },
+          "apply": { "const": false }
+        }
+      }
+    },
+    "SimulateResponse": {
+      "title": "SimulateResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposedChanges", "requiresConfirmation", "scenario", "result", "mode"],
+      "properties": {
+        "proposedChanges": { "type": "array", "items": { "$ref": "#/$defs/Change" } },
+        "requiresConfirmation": { "type": "boolean" },
+        "scenario": { "$ref": "scenario.schema.json" },
+        "result": { "oneOf": [{ "type": "null" }, { "$ref": "result.schema.json" }] },
+        "mode": { "$ref": "#/$defs/DataMode" }
+      }
+    },
+    "ExplainRequest": {
+      "title": "ExplainRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "result"],
+      "properties": {
+        "scenario": { "$ref": "scenario.schema.json" },
+        "result": { "$ref": "result.schema.json" }
+      }
+    },
+    "ExplainResponse": {
+      "title": "ExplainResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "mode"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "mode": { "$ref": "#/$defs/DataMode" }
+      }
+    },
+    "ProfilePutRequest": {
+      "title": "ProfilePutRequest",
+      "description": "Optional endpoint PUT /profiles/{id}. Unguessable ids are not authentication.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario"],
+      "properties": { "scenario": { "$ref": "scenario.schema.json" } }
+    },
+    "ProfileResponse": {
+      "title": "ProfileResponse",
+      "description": "Optional endpoints PUT/GET /profiles/{id}.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scenario"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "scenario": { "$ref": "scenario.schema.json" }
+      }
+    },
+    "CertificateRequest": {
+      "title": "CertificateRequest",
+      "description": "Optional endpoint POST /certificates. The core certificate is embedded in optimize/simulate results.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "result"],
+      "properties": {
+        "scenario": { "$ref": "scenario.schema.json" },
+        "result": { "$ref": "result.schema.json" }
+      }
+    },
+    "CertificateResponse": {
+      "title": "CertificateResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["certificate"],
+      "properties": {
+        "certificate": { "$ref": "result.schema.json#/$defs/Certificate" },
+        "downloadUrl": { "type": "string", "maxLength": 2048 },
+        "expiresAt": { "type": "string", "maxLength": 64 }
+      }
+    }
+  }
+}

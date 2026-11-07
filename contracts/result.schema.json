@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trademind.example/contracts/result.schema.json",
+  "title": "Result",
+  "description": "TradeMind v1 frozen contract. Output of the deterministic optimizer. 'infeasible' (no valid allocation) is distinct from 'no_exchange' (feasible, but no strictly beneficial exchange). When infeasible: assignments is empty and businessMetrics, totals and certificate are null. The certificate is deterministic recomputation, not a signature or a business guarantee.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "assignments", "businessMetrics", "totals", "reasons", "certificate"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "status": { "enum": ["collaboration", "no_exchange", "infeasible"] },
+    "assignments": {
+      "type": "array",
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/Assignment" }
+    },
+    "businessMetrics": {
+      "type": ["array", "null"],
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/BusinessMetrics" }
+    },
+    "totals": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Totals" }]
+    },
+    "reasons": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Reason" }
+    },
+    "certificate": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Certificate" }]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "required": ["status"], "properties": { "status": { "const": "infeasible" } } },
+      "then": {
+        "properties": {
+          "assignments": { "maxItems": 0 },
+          "businessMetrics": { "type": "null" },
+          "totals": { "type": "null" },
+          "certificate": { "type": "null" }
+        }
+      },
+      "else": {
+        "properties": {
+          "assignments": { "minItems": 1 },
+          "businessMetrics": { "type": "array" },
+          "totals": { "type": "object" },
+          "certificate": { "type": "object" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Slug": {
+      "title": "ResultSlug",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$"
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliverableId", "providerId", "minutes"],
+      "properties": {
+        "deliverableId": { "$ref": "#/$defs/Slug" },
+        "providerId": { "$ref": "#/$defs/Slug" },
+        "minutes": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+      }
+    },
+    "BusinessMetrics": {
+      "title": "BusinessMetrics",
+      "description": "effortMinutes = productionMinutes + coordinationMinutes; netSavingsMinutes = baselineMinutes - effortMinutes. Coordination is charged once per participating business.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["businessId", "baselineMinutes", "productionMinutes", "coordinationMinutes", "effortMinutes", "netSavingsMinutes"],
+      "properties": {
+        "businessId": { "$ref": "#/$defs/Slug" },
+        "baselineMinutes": { "type": "integer", "minimum": 0 },
+        "productionMinutes": { "type": "integer", "minimum": 0 },
+        "coordinationMinutes": { "type": "integer", "minimum": 0 },
+        "effortMinutes": { "type": "integer", "minimum": 0 },
+        "netSavingsMinutes": { "type": "integer" }
+      }
+    },
+    "Totals": {
+      "title": "Totals",
+      "description": "grossSavingsMinutes = baseline - production; netSavingsMinutes = baseline - effort.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baselineMinutes", "productionMinutes", "coordinationMinutes", "effortMinutes", "grossSavingsMinutes", "netSavingsMinutes"],
+      "properties": {
+        "baselineMinutes": { "type": "integer", "minimum": 0 },
+        "productionMinutes": { "type": "integer", "minimum": 0 },
+        "coordinationMinutes": { "type": "integer", "minimum": 0 },
+        "effortMinutes": { "type": "integer", "minimum": 0 },
+        "grossSavingsMinutes": { "type": "integer" },
+        "netSavingsMinutes": { "type": "integer" }
+      }
+    },
+    "Reason": {
+      "title": "Reason",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "CertificateCheck": {
+      "title": "CertificateCheck",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "passed"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "passed": { "const": true }
+      }
+    },
+    "Certificate": {
+      "title": "Certificate",
+      "description": "Digests are SHA-256 of canonical JSON (recursively sorted keys, array order retained, UTF-8, no whitespace); the backend is authoritative. Not a signed legal document, identity credential, profit guarantee or quality guarantee.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "scenarioDigest", "allocationDigest", "verification", "assumptions", "checks"],
+      "properties": {
+        "schemaVersion": { "const": "1" },
+        "scenarioDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "allocationDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "verification": { "const": "valid" },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CertificateCheck" }
+        }
+      }
+    }
+  }
+}
