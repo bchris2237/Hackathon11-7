@@ -56,8 +56,9 @@ These cannot be expressed in JSON Schema. Phase 0 only checks them on the fixtur
 - at most one estimate per service per business
 - each owner has an estimate for its own required service, otherwise **422 `MISSING_BASELINE`**
 - `SimulateRequest`: text together with non-empty `changes`, or text with `apply: true`, is rejected.
-  The JSON Schema rejects it, but the generated Pydantic model cannot, so two parity cases are marked xfail
-- request size 32 KiB (`MAX_BODY_BYTES` in `backend/app.py` is defined but not enforced yet)
+  The JSON Schema rejects it, but the generated Pydantic model cannot, so two parity cases are marked xfail.
+  **Enforced since B1** in `App._check_request_rules` (`backend/app.py`) and tested in `tests/backend/test_routes.py`
+- request size 32 KiB: **enforced since B1** (`MAX_BODY_BYTES`, 413 `PAYLOAD_TOO_LARGE`, before any parsing)
 - digest and certificate recomputation (Certificate verification is recomputed by the backend)
 
 ## Decision: the MVP has exactly 3 businesses

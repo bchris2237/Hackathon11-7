@@ -10,7 +10,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from backend.app import handle_request
+from backend.app import App, handle_request
 from backend.config import ConfigError, load_settings
 from backend.local import make_handler
 from contracts.models import ErrorEnvelope
@@ -65,9 +65,13 @@ def test_query_string_is_ignored_for_routing():
     assert handle_request(SETTINGS, "GET", "/health?x=1", "r").status == 200
 
 
-def test_live_mode_is_rejected_at_startup_not_silently_faked():
-    with pytest.raises(ConfigError, match="live"):
-        load_settings({"APP_MODE": "live"})
+def test_live_mode_starts_but_missing_adapters_are_503_not_faked():
+    # B1 supersedes Phase 0's "live refuses to start": /health must be deployable early, and the
+    # honest guard moved to the routes. Without adapters every non-health route answers 503.
+    live = load_settings({"APP_MODE": "live"})
+    assert live.mode == "live"
+    assert handle_request(live, "GET", "/health", "r").body["mode"] == "live"
+    assert handle_request(live, "POST", "/optimize", "r", b"{}").status == 503
 
 
 @pytest.mark.parametrize(
@@ -89,7 +93,7 @@ def _get(url, method="GET", data=None, headers=None):
 
 
 def test_real_http_server_serves_health_and_labels_mode():
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(SETTINGS))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(App(SETTINGS)))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base = f"http://127.0.0.1:{server.server_address[1]}"

@@ -120,7 +120,10 @@ def test_invalid_simulate_request_rejected_by_schema_and_pydantic(case, canonica
     # Pydantic cannot express the 'text => changes=[] and apply=false' rule from the schema's
     # if/then. Those two cases are enforced by the backend simulate validator (B-track).
     if case["name"] in ("text together with changes", "text with apply true (text is proposal-only)"):
-        pytest.xfail("conditional rule is not representable in generated Pydantic models; enforced by backend (B-track)")
+        pytest.xfail(
+            "conditional rule is not representable in generated Pydantic models; "
+            "enforced by App._check_request_rules (B1), tested in tests/backend/test_routes.py"
+        )
     with pytest.raises(ValidationError):
         models.SimulateRequest.model_validate(data)
 
