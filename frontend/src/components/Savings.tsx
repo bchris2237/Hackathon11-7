@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { BusinessMetrics, Result, Scenario } from "../../../contracts/models";
 import { ApiClient, describeError } from "../lib/api";
 import { formatDuration } from "../state/scenario";
@@ -173,6 +173,7 @@ type ExplainState =
  * fails on its own and never changes anything above it.
  */
 function ExplainSection({ scenario, result, client }: Props) {
+  const headingId = useId();
   const [state, setState] = useState<ExplainState>({ kind: "idle" });
   const seq = useRef(0);
   const controller = useRef<AbortController | null>(null);
@@ -204,8 +205,8 @@ function ExplainSection({ scenario, result, client }: Props) {
   }
 
   return (
-    <section aria-labelledby="explain-heading" className="rounded border border-slate-200 p-2" data-testid="explain">
-      <h4 id="explain-heading" className="text-sm font-semibold">
+    <section aria-labelledby={headingId} className="rounded border border-slate-200 p-2" data-testid="explain">
+      <h4 id={headingId} className="text-sm font-semibold">
         Plain-language explanation (optional)
       </h4>
       <button

@@ -4,6 +4,7 @@ import { ApiClient, describeError } from "./lib/api";
 import BusinessForm from "./components/BusinessForm";
 import ExtractionReview from "./components/ExtractionReview";
 import OptimizePanel from "./components/OptimizePanel";
+import Simulation from "./components/Simulation";
 import { readConfig } from "./config";
 import { initialState, scenarioReducer, validateForm } from "./state/scenario";
 
@@ -13,8 +14,8 @@ type HealthState =
   | { kind: "unavailable"; message: string };
 
 const NOT_BUILT = [
-  "Optimization, exchange graph and certificate",
-  "Natural-language what-if simulation",
+  "Saved profiles (optional enhancement)",
+  "Certificate download (optional enhancement)",
 ];
 
 export default function App() {
@@ -172,6 +173,15 @@ export default function App() {
               version={scenario.version}
               result={scenario.result}
               onResult={(forVersion, result) => dispatch({ type: "set_result", forVersion, result })}
+            />
+            <Simulation
+              client={client}
+              confirmed={scenario.confirmed}
+              baseResult={scenario.result}
+              version={scenario.version}
+              whatIf={scenario.whatIf}
+              onWhatIf={(forVersion, whatIf) => dispatch({ type: "set_whatif", forVersion, whatIf })}
+              onDiscard={() => dispatch({ type: "clear_whatif" })}
             />
             <div className="mt-3" data-testid="health-state" aria-live="polite">
               {state.kind === "checking" && <p>Checking /health…</p>}

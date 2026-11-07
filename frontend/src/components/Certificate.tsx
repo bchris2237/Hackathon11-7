@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { Certificate as CertificateData, DataMode, Result } from "../../../contracts/models";
 
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -43,10 +44,11 @@ interface Props {
 }
 
 export default function Certificate({ result, mode }: Props) {
+  const headingId = useId();
   if (result.status === "infeasible") {
     return (
-      <section aria-labelledby="cert-heading" className="rounded border border-slate-200 p-3" data-testid="certificate">
-        <h4 id="cert-heading" className="text-sm font-semibold">Verification certificate</h4>
+      <section aria-labelledby={headingId} className="rounded border border-slate-200 p-3" data-testid="certificate">
+        <h4 id={headingId} className="text-sm font-semibold">Verification certificate</h4>
         <p className="mt-1 text-sm" data-testid="certificate-none">
           None. An infeasible result has no allocation to verify, so no certificate is issued.
         </p>
@@ -57,8 +59,8 @@ export default function Certificate({ result, mode }: Props) {
   const checked = result.certificate === null ? null : checkCertificate(result.certificate);
 
   return (
-    <section aria-labelledby="cert-heading" className="space-y-2 rounded border border-slate-200 p-3" data-testid="certificate">
-      <h4 id="cert-heading" className="text-sm font-semibold">Verification certificate</h4>
+    <section aria-labelledby={headingId} className="space-y-2 rounded border border-slate-200 p-3" data-testid="certificate">
+      <h4 id={headingId} className="text-sm font-semibold">Verification certificate</h4>
 
       <p className="text-sm" data-testid="certificate-provenance">
         Source:{" "}

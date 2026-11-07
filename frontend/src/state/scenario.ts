@@ -1,7 +1,7 @@
 // Editable scenario form state: text fields in, validated v1 Scenario out.
 // Everything here is pure (no I/O, no globals mutated), so it is directly unit-testable.
 // Internally all durations are integer minutes; the UI shows hours only when that is exact.
-import type { Draft, Result, Scenario, Service } from "../../../contracts/models";
+import type { Change, DataMode, Draft, Result, Scenario, Service } from "../../../contracts/models";
 import canonicalFixture from "../../../fixtures/canonical.json";
 
 export const SERVICES: readonly Service[] = ["coding", "design", "writing"];
@@ -195,6 +195,22 @@ export interface ScenarioState {
   result: Result | null;
   /** Backend-confirmed scenario for the current form version. Cleared by every edit. */
   confirmed: Scenario | null;
+  /** Latest applied what-if, kept next to (never instead of) `result`. Cleared by every edit. */
+  whatIf: WhatIf | null;
+  /** How many what-ifs were applied for the current form version; labels them #1, #2, ... */
+  whatIfCount: number;
+}
+
+/** A what-if is computed on a COPY of the confirmed scenario; the original is never replaced. */
+export interface WhatIf {
+  /** 1-based label within the current input version. */
+  n: number;
+  /** Input version of the form this what-if was derived from. */
+  baseVersion: number;
+  changes: Change[];
+  scenario: Scenario;
+  result: Result;
+  mode: DataMode;
 }
 
 export type ScenarioAction =
@@ -203,7 +219,9 @@ export type ScenarioAction =
   | { type: "apply_draft"; form: ScenarioForm }
   | { type: "set_confirmed"; forVersion: number; scenario: Scenario }
   | { type: "edit_business"; index: number; patch: BusinessPatch }
-  | { type: "set_result"; forVersion: number; result: Result };
+  | { type: "set_result"; forVersion: number; result: Result }
+  | { type: "set_whatif"; forVersion: number; whatIf: Omit<WhatIf, "n" | "baseVersion"> }
+  | { type: "clear_whatif" };
 
 export type BusinessPatch = Partial<Omit<FormBusiness, "estimates" | "requirement">> & {
   estimates?: Partial<Record<Service, string>>;
@@ -228,6 +246,8 @@ export function initialState(): ScenarioState {
     version: 0,
     result: null,
     confirmed: null,
+    whatIf: null,
+    whatIfCount: 0,
   };
 }
 
@@ -257,14 +277,17 @@ export function draftToForm(draft: Draft, descriptions: Record<string, string>):
   return { businesses };
 }
 
+/** Everything derived from the inputs, cleared together by any change to them. */
+const CLEARED = { result: null, confirmed: null, whatIf: null, whatIfCount: 0 } as const;
+
 export function scenarioReducer(state: ScenarioState, action: ScenarioAction): ScenarioState {
   switch (action.type) {
     case "load_canonical":
-      return { form: loadCanonicalForm(), version: state.version + 1, result: null, confirmed: null };
+      return { form: loadCanonicalForm(), version: state.version + 1, ...CLEARED };
     case "reset":
       return { ...initialState(), version: state.version + 1 };
     case "apply_draft":
-      return { form: action.form, version: state.version + 1, result: null, confirmed: null };
+      return { form: action.form, version: state.version + 1, ...CLEARED };
     case "set_confirmed":
       // Only the exact form version that was sent can become confirmed.
       return action.forVersion === state.version ? { ...state, confirmed: action.scenario } : state;
@@ -280,14 +303,192 @@ export function scenarioReducer(state: ScenarioState, action: ScenarioAction): S
       };
       const businesses = state.form.businesses.map((b, i) => (i === action.index ? next : b));
       // Any edit invalidates the prior result and its certificate.
-      return { form: { businesses }, version: state.version + 1, result: null, confirmed: null };
+      return { form: { businesses }, version: state.version + 1, ...CLEARED };
     }
     case "set_result":
       // A result computed for an older form version must never be shown.
-      return action.forVersion === state.version ? { ...state, result: action.result } : state;
+      // A new base result also makes any earlier what-if comparison stale.
+      return action.forVersion === state.version
+        ? { ...state, result: action.result, whatIf: null, whatIfCount: 0 }
+        : state;
+    case "set_whatif": {
+      // Only for the input version it was computed from, and only with a base result to compare to.
+      if (action.forVersion !== state.version || !state.result) return state;
+      const n = state.whatIfCount + 1;
+      return { ...state, whatIfCount: n, whatIf: { ...action.whatIf, n, baseVersion: state.version } };
+    }
+    case "clear_whatif":
+      return { ...state, whatIf: null };
   }
 }
 
 export function errorsFor(errors: FieldError[], path: string): string | undefined {
   return errors.find((e) => e.path === path)?.message;
+}
+
+// ---- what-if changes (allowlisted, pure) --------------------------------------------------
+
+export const MAX_CHANGES = 20;
+export const MAX_WHATIF_TEXT = 2000;
+export type ChangeKind = Change["kind"];
+export const CHANGE_KINDS: readonly ChangeKind[] = ["capacity", "coordination", "estimate"];
+
+/** "3 h", "0.25 h" or "10 min": exact, never rounded. */
+export function minutesLabel(minutes: number): string {
+  const text = formatDuration(minutes);
+  return text.endsWith("m") ? `${minutes} min` : `${text} h`;
+}
+
+const hasOnly = (value: object, keys: string[]) =>
+  Object.keys(value).length === keys.length && keys.every((k) => k in value);
+
+/** Strict structural check: only the three tagged shapes, no extra keys. */
+export function isChange(value: unknown): value is Change {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const c = value as Record<string, unknown>;
+  if (c.kind === "capacity" || c.kind === "coordination") {
+    return hasOnly(c, ["kind", "businessId", "minutes"]) && typeof c.businessId === "string" && Number.isInteger(c.minutes);
+  }
+  if (c.kind === "estimate") {
+    return (
+      hasOnly(c, ["kind", "businessId", "service", "minutes"]) &&
+      typeof c.businessId === "string" &&
+      SERVICES.includes(c.service as Service) &&
+      Number.isInteger(c.minutes)
+    );
+  }
+  return false;
+}
+
+const targetKey = (c: Change) => (c.kind === "estimate" ? `estimate:${c.businessId}:${c.service}` : `${c.kind}:${c.businessId}`);
+
+/**
+ * Everything wrong with a list of changes against a scenario; empty means acceptable.
+ * Used for manual input and, above all, for proposals coming back from the model: ids must
+ * already exist, values must be in range and each field may be changed only once.
+ */
+export function checkChanges(scenario: Scenario, changes: unknown): string[] {
+  if (!Array.isArray(changes)) return ["The changes are not a list."];
+  if (changes.length > MAX_CHANGES) return [`At most ${MAX_CHANGES} changes are allowed.`];
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  changes.forEach((c, i) => {
+    const at = `Change ${i + 1}`;
+    if (!isChange(c)) {
+      problems.push(`${at} is not an allowed change (capacity, coordination or estimate only).`);
+      return;
+    }
+    if (!scenario.businesses.some((b) => b.id === c.businessId)) {
+      problems.push(`${at} names an unknown business "${c.businessId}".`);
+    }
+    const min = c.kind === "estimate" ? 1 : 0;
+    if (c.minutes < min || c.minutes > MAX_MINUTES) {
+      problems.push(`${at} has ${c.minutes} minutes; it must be ${min} to ${MAX_MINUTES}.`);
+    }
+    const key = targetKey(c);
+    if (seen.has(key)) problems.push(`${at} changes the same field as an earlier change.`);
+    seen.add(key);
+  });
+  return problems;
+}
+
+/** Applies already-checked changes to a deep copy. The input scenario is never touched. */
+export function applyChanges(scenario: Scenario, changes: readonly Change[]): Scenario {
+  const copy = structuredClone(scenario);
+  for (const c of changes) {
+    const business = copy.businesses.find((b) => b.id === c.businessId);
+    if (!business) continue;
+    if (c.kind === "estimate") {
+      const estimate = business.estimates.find((e) => e.service === c.service);
+      if (estimate) estimate.minutes = c.minutes;
+      else business.estimates.push({ service: c.service, minutes: c.minutes });
+    } else if (c.kind === "capacity") business.capacityMinutes = c.minutes;
+    else business.coordinationMinutes = c.minutes;
+  }
+  return copy;
+}
+
+/** Equality that ignores the order of a business's estimates, which carries no meaning. */
+export function sameScenario(a: Scenario, b: Scenario): boolean {
+  const norm = (s: Scenario) =>
+    JSON.stringify({
+      ...s,
+      businesses: s.businesses.map((x) => ({
+        id: x.id,
+        name: x.name,
+        capacityMinutes: x.capacityMinutes,
+        coordinationMinutes: x.coordinationMinutes,
+        estimates: [...x.estimates].sort((p, q) => p.service.localeCompare(q.service)).map((e) => [e.service, e.minutes]),
+      })),
+      deliverables: s.deliverables.map((d) => [d.id, d.ownerId, d.service]),
+    });
+  return norm(a) === norm(b);
+}
+
+/** One reviewable line, e.g. "DesignCo design estimate: 3 h → 10 h". Old value comes from the scenario. */
+export function describeChange(scenario: Scenario, c: Change): string {
+  const business = scenario.businesses.find((b) => b.id === c.businessId);
+  const name = business?.name ?? c.businessId;
+  const to = minutesLabel(c.minutes);
+  if (c.kind === "estimate") {
+    const old = business?.estimates.find((e) => e.service === c.service)?.minutes;
+    return `${name} ${c.service} estimate: ${old === undefined ? "unsupported" : minutesLabel(old)} → ${to}`;
+  }
+  const old = c.kind === "capacity" ? business?.capacityMinutes : business?.coordinationMinutes;
+  return `${name} ${c.kind}: ${old === undefined ? "unknown" : minutesLabel(old)} → ${to}`;
+}
+
+export interface ChangeDraft {
+  kind: ChangeKind;
+  businessId: string;
+  service: Service;
+  /** Hours (or minutes with "m"), as typed. */
+  value: string;
+}
+
+/** Turns what the user typed into a Change, or says why not. Same duration rules as the main form. */
+export function changeFromDraft(
+  draft: ChangeDraft,
+): { ok: true; change: Change } | { ok: false; error: string } {
+  if (!CHANGE_KINDS.includes(draft.kind)) return { ok: false, error: "Choose what to change." };
+  if (draft.businessId === "") return { ok: false, error: "Choose a business." };
+  const parsed = parseDuration(draft.value, draft.kind === "estimate" ? "positive" : "nonnegative");
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  if (draft.kind === "estimate") {
+    if (!SERVICES.includes(draft.service)) return { ok: false, error: "Choose a service." };
+    return { ok: true, change: { kind: "estimate", businessId: draft.businessId, service: draft.service, minutes: parsed.minutes } };
+  }
+  return { ok: true, change: { kind: draft.kind, businessId: draft.businessId, minutes: parsed.minutes } };
+}
+
+export interface AssignmentRow {
+  deliverableId: string;
+  ownerId: string;
+  service: Service;
+  beforeProvider: string | null;
+  afterProvider: string | null;
+  beforeMinutes: number | null;
+  afterMinutes: number | null;
+  changed: boolean;
+}
+
+/**
+ * Per-deliverable before/after rows taken only from the two results. A missing assignment
+ * (infeasible result) is null, never a guess. `changed` means provider or minutes differ.
+ */
+export function compareAssignments(scenario: Scenario, before: Result, after: Result): AssignmentRow[] {
+  return scenario.deliverables.map((d) => {
+    const b = before.assignments.find((a) => a.deliverableId === d.id);
+    const a = after.assignments.find((x) => x.deliverableId === d.id);
+    return {
+      deliverableId: d.id,
+      ownerId: d.ownerId,
+      service: d.service,
+      beforeProvider: b?.providerId ?? null,
+      afterProvider: a?.providerId ?? null,
+      beforeMinutes: b?.minutes ?? null,
+      afterMinutes: a?.minutes ?? null,
+      changed: (b?.providerId ?? null) !== (a?.providerId ?? null) || (b?.minutes ?? null) !== (a?.minutes ?? null),
+    };
+  });
 }

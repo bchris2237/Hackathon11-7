@@ -225,8 +225,20 @@ export class ApiClient {
     }
     return body;
   }
-  simulate(req: SimulateRequest, options?: CallOptions): Promise<SimulateResponse> {
-    return this.post("/simulate", req, options);
+  async simulate(req: SimulateRequest, options?: CallOptions): Promise<SimulateResponse> {
+    const body = await this.post<SimulateRequest, SimulateResponse>("/simulate", req, options);
+    const scenario = body.scenario as { confirmed?: unknown; schemaVersion?: unknown } | undefined;
+    if (
+      !Array.isArray(body.proposedChanges) ||
+      typeof body.requiresConfirmation !== "boolean" ||
+      !scenario ||
+      scenario.confirmed !== true ||
+      scenario.schemaVersion !== "1" ||
+      (body.result !== null && !isResult(body.result))
+    ) {
+      throw new ApiUnavailableError("Backend /simulate response does not match the v1 contract.");
+    }
+    return body;
   }
   async explain(req: ExplainRequest, options?: CallOptions): Promise<ExplainResponse> {
     const body = await this.post<ExplainRequest, ExplainResponse>("/explain", req, options);

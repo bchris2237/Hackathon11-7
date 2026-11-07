@@ -17,7 +17,7 @@ interface Props {
 
 type Status = { kind: "idle" } | { kind: "pending" } | { kind: "error"; message: string };
 
-const STATUS_TEXT: Record<Result["status"], string> = {
+export const STATUS_TEXT: Record<Result["status"], string> = {
   collaboration: "Beneficial exchange found",
   no_exchange: "Feasible, but no beneficial exchange",
   infeasible: "Infeasible: no valid allocation",
