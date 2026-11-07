@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { DraftBusiness, ExtractRequest, ExtractResponse, Scenario } from "../../../contracts/models";
-import { ApiClient, describeError } from "../lib/api";
+import { ApiClient } from "../lib/api";
+import { AsyncError, Pending, useLatestRequest } from "./AsyncState";
 import {
   SERVICES,
   draftToForm,
@@ -31,7 +32,7 @@ interface Review {
   sent: SentDescription[];
 }
 
-type Status = { kind: "idle" } | { kind: "pending" } | { kind: "error"; message: string };
+type Status = { kind: "idle" } | { kind: "pending" } | { kind: "error"; error: unknown };
 
 const SLUG = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
 
@@ -83,73 +84,75 @@ export default function ExtractionReview({ client, form, version, validation, co
   const [review, setReview] = useState<Review | null>(null);
   const [extractStatus, setExtractStatus] = useState<Status>({ kind: "idle" });
   const [confirmStatus, setConfirmStatus] = useState<Status>({ kind: "idle" });
-  const seq = useRef(0);
-  const controller = useRef<AbortController | null>(null);
+  const { start, invalidate } = useLatestRequest();
 
   // Any change to the form invalidates in-flight requests: abort them and bump the id so
   // that even a response that slips through cannot be applied.
   useEffect(() => {
-    seq.current += 1;
-    controller.current?.abort();
-    controller.current = null;
+    invalidate();
     setExtractStatus((s) => (s.kind === "pending" ? { kind: "idle" } : s));
     setConfirmStatus((s) => (s.kind === "idle" ? s : { kind: "idle" }));
-  }, [version]);
+  }, [version, invalidate]);
 
-  useEffect(() => () => controller.current?.abort(), []);
-
-  function begin(): { id: number; signal: AbortSignal } {
-    controller.current?.abort();
-    const next = new AbortController();
-    controller.current = next;
-    seq.current += 1;
-    return { id: seq.current, signal: next.signal };
-  }
+  // Switching between live and fixture mode replaces the client: nothing extracted under the
+  // other mode may stay on screen.
+  useEffect(() => {
+    invalidate();
+    setReview(null);
+    setExtractStatus({ kind: "idle" });
+    setConfirmStatus({ kind: "idle" });
+  }, [client, invalidate]);
 
   async function runExtract() {
     const sent = form.businesses
       .map((b) => ({ id: b.id.trim(), name: b.name.trim(), text: b.description.trim() }))
       .filter((d) => d.id !== "" && d.name !== "" && d.text !== "");
     if (sent.length === 0) {
-      setExtractStatus({ kind: "error", message: "Enter an ID, a name and a description for at least one business first." });
+      setExtractStatus({ kind: "error", error: "Enter an ID, a name and a description for at least one business first." });
       return;
     }
     const badId = sent.find((d) => !SLUG.test(d.id));
     if (badId) {
-      setExtractStatus({ kind: "error", message: `Business ID "${badId.id}" is not a valid lowercase slug.` });
+      setExtractStatus({ kind: "error", error: `Business ID "${badId.id}" is not a valid lowercase slug.` });
       return;
     }
-    const { id, signal } = begin();
+    const request = start();
+    if (!request) return; // a request is already running: no double submit
     setExtractStatus({ kind: "pending" });
     setConfirmStatus({ kind: "idle" });
     try {
-      const response = await client.extract({ descriptions: sent } as ExtractRequest, { signal });
-      if (id !== seq.current) return; // superseded by newer input
+      const response = await client.extract({ descriptions: sent } as ExtractRequest, { signal: request.signal });
+      if (!request.isCurrent()) return; // superseded by newer input
       const texts = Object.fromEntries(sent.map((d) => [d.id, d.text]));
       setReview({ response, sent });
       setExtractStatus({ kind: "idle" });
       // Nothing is confirmed: the draft only fills the editable form, with blanks where null.
       onApplyDraft(draftToForm(response.draft, texts));
     } catch (error) {
-      if (id !== seq.current || (error instanceof DOMException && error.name === "AbortError")) return;
+      if (!request.isCurrent() || (error instanceof DOMException && error.name === "AbortError")) return;
       // The user's form is untouched. No fallback data is substituted.
-      setExtractStatus({ kind: "error", message: describeError(error) });
+      setExtractStatus({ kind: "error", error });
+    } finally {
+      request.done();
     }
   }
 
   async function runConfirm() {
     if (!validation.scenario) return;
-    const { id, signal } = begin();
+    const request = start();
+    if (!request) return;
     const forVersion = version;
     setConfirmStatus({ kind: "pending" });
     try {
-      const response = await client.confirm({ scenario: validation.scenario }, { signal });
-      if (id !== seq.current) return;
+      const response = await client.confirm({ scenario: validation.scenario }, { signal: request.signal });
+      if (!request.isCurrent()) return;
       setConfirmStatus({ kind: "idle" });
       onConfirmed(forVersion, response.scenario);
     } catch (error) {
-      if (id !== seq.current || (error instanceof DOMException && error.name === "AbortError")) return;
-      setConfirmStatus({ kind: "error", message: describeError(error) });
+      if (!request.isCurrent() || (error instanceof DOMException && error.name === "AbortError")) return;
+      setConfirmStatus({ kind: "error", error });
+    } finally {
+      request.done();
     }
   }
 
@@ -167,15 +170,21 @@ export default function ExtractionReview({ client, form, version, validation, co
         <button
           type="button"
           onClick={runExtract}
-          disabled={extractStatus.kind === "pending"}
+          disabled={extractStatus.kind === "pending" || confirmStatus.kind === "pending"}
           className="mt-2 rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-60"
         >
           {extractStatus.kind === "pending" ? "Extracting…" : "Extract draft"}
         </button>
+        {extractStatus.kind === "pending" && <Pending>Reading the descriptions…</Pending>}
         {extractStatus.kind === "error" && (
-          <p role="alert" className="mt-2 text-sm text-red-800">
-            Extraction failed. {extractStatus.message} Your inputs are unchanged.
-          </p>
+          <AsyncError
+            error={extractStatus.error}
+            prefix="Extraction failed."
+            suffix="Your inputs are unchanged."
+            manualHint="You can still type the values into the fields above by hand."
+            onRetry={runExtract}
+            testId="extract-error"
+          />
         )}
       </div>
 
@@ -273,10 +282,15 @@ export default function ExtractionReview({ client, form, version, validation, co
         >
           {confirmStatus.kind === "pending" ? "Confirming…" : "Confirm scenario"}
         </button>
+        {confirmStatus.kind === "pending" && <Pending>Checking the scenario…</Pending>}
         {confirmStatus.kind === "error" && (
-          <p role="alert" className="mt-2 text-sm text-red-800">
-            Confirmation failed. {confirmStatus.message} Your inputs are unchanged.
-          </p>
+          <AsyncError
+            error={confirmStatus.error}
+            prefix="Confirmation failed."
+            suffix="Your inputs are unchanged."
+            onRetry={runConfirm}
+            testId="confirm-error"
+          />
         )}
         {confirmed && (
           <p role="status" data-testid="confirmed-note" className="mt-2 text-sm font-medium text-emerald-900">

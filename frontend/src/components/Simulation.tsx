@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { Change, DataMode, Result, Scenario, Service } from "../../../contracts/models";
-import { ApiClient, describeError } from "../lib/api";
+import { ApiClient } from "../lib/api";
+import { AsyncError, EmptyState, Pending, useLatestRequest } from "./AsyncState";
 import {
   CHANGE_KINDS,
   MAX_WHATIF_TEXT,
@@ -39,7 +40,7 @@ type Status =
   | { kind: "idle" }
   | { kind: "proposing" }
   | { kind: "applying" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; error: unknown; context: "propose" | "apply" | "local" }
   | { kind: "notice"; message: string };
 
 const FIELD =
@@ -57,50 +58,47 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
   const [service, setService] = useState<Service>("design");
   const [value, setValue] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
-  const seq = useRef(0);
-  const controller = useRef<AbortController | null>(null);
+  const { start, invalidate } = useLatestRequest();
   const textId = useId();
   const resultHeadingId = useId();
   const busy = status.kind === "proposing" || status.kind === "applying";
 
   // Any change of the inputs makes pending proposals and in-flight requests stale. What the
   // user typed (description, manual fields) is kept.
+  // A switch between live and fixture mode replaces the client and does the same.
   useEffect(() => {
-    seq.current += 1;
-    controller.current?.abort();
-    controller.current = null;
+    invalidate();
     setProposal(null);
     setStatus({ kind: "idle" });
     setDraftError(null);
-  }, [version]);
-  useEffect(() => () => controller.current?.abort(), []);
-
-  function begin(): { id: number; signal: AbortSignal } {
-    controller.current?.abort();
-    const next = new AbortController();
-    controller.current = next;
-    seq.current += 1;
-    return { id: seq.current, signal: next.signal };
-  }
+  }, [version, client, invalidate]);
 
   const ready = confirmed !== null && baseResult !== null;
 
   async function propose() {
     if (!confirmed || !baseResult) return;
     const trimmed = text.trim();
-    if (trimmed === "") return setStatus({ kind: "error", message: "Describe the change you want to try first." });
+    if (trimmed === "") return setStatus({ kind: "error", error: "Describe the change you want to try first.", context: "local" });
     if (trimmed.length > MAX_WHATIF_TEXT) {
-      return setStatus({ kind: "error", message: `Keep the description under ${MAX_WHATIF_TEXT} characters.` });
+      return setStatus({ kind: "error", error: `Keep the description under ${MAX_WHATIF_TEXT} characters.`, context: "local" });
     }
-    const { id, signal } = begin();
+    const request = start();
+    if (!request) return; // already running: no double submit
     setStatus({ kind: "proposing" });
     try {
       // Stage 1: text only, apply=false, no changes. The model can propose; it cannot change anything.
-      const response = await client.simulate({ scenario: confirmed, changes: [], text: trimmed, apply: false }, { signal });
-      if (id !== seq.current) return;
+      const response = await client.simulate(
+        { scenario: confirmed, changes: [], text: trimmed, apply: false },
+        { signal: request.signal },
+      );
+      if (!request.isCurrent()) return;
       const problems = checkChanges(confirmed, response.proposedChanges);
       if (problems.length > 0) {
-        setStatus({ kind: "error", message: `The proposal was rejected and not shown as applicable. ${problems.join(" ")}` });
+        setStatus({
+          kind: "error",
+          error: `The proposal was rejected and not shown as applicable. ${problems.join(" ")}`,
+          context: "local",
+        });
         return;
       }
       if (response.proposedChanges.length === 0) {
@@ -110,46 +108,60 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
       setProposal({ source: "text", changes: response.proposedChanges, text: trimmed, mode: response.mode });
       setStatus({ kind: "idle" });
     } catch (error) {
-      if (id !== seq.current || (error instanceof DOMException && error.name === "AbortError")) return;
-      setStatus({ kind: "error", message: `Proposal failed. ${describeError(error)} Your description is kept.` });
+      if (!request.isCurrent() || (error instanceof DOMException && error.name === "AbortError")) return;
+      setStatus({ kind: "error", error, context: "propose" });
+    } finally {
+      request.done();
     }
   }
 
   async function apply() {
     if (!proposal || !confirmed || !baseResult) return;
     const problems = checkChanges(confirmed, proposal.changes);
-    if (problems.length > 0) return setStatus({ kind: "error", message: problems.join(" ") });
-    const { id, signal } = begin();
+    if (problems.length > 0) return setStatus({ kind: "error", error: problems.join(" "), context: "local" });
+    const request = start();
+    if (!request) return; // already running: no double submit
     const forVersion = version;
     const approved = proposal.changes;
     setStatus({ kind: "applying" });
     try {
       // Stage 2: exactly the reviewed changes, apply=true, and no text.
-      const response = await client.simulate({ scenario: confirmed, changes: approved, apply: true }, { signal });
-      if (id !== seq.current) return;
+      const response = await client.simulate(
+        { scenario: confirmed, changes: approved, apply: true },
+        { signal: request.signal },
+      );
+      if (!request.isCurrent()) return;
       if (response.result === null) {
-        setStatus({ kind: "error", message: "The backend returned no result for the applied changes, so nothing is shown." });
+        setStatus({
+          kind: "error",
+          error: "The backend returned no result for the applied changes, so nothing is shown.",
+          context: "local",
+        });
         return;
       }
       // The returned scenario must be exactly the base plus the approved changes, nothing more.
       if (!sameScenario(response.scenario, applyChanges(confirmed, approved))) {
-        setStatus({ kind: "error", message: "The returned scenario does not match your approved changes, so it was discarded." });
+        setStatus({
+          kind: "error",
+          error: "The returned scenario does not match your approved changes, so it was discarded.",
+          context: "local",
+        });
         return;
       }
       onWhatIf(forVersion, { changes: approved, scenario: response.scenario, result: response.result, mode: response.mode });
       setProposal(null);
       setStatus({ kind: "idle" });
     } catch (error) {
-      if (id !== seq.current || (error instanceof DOMException && error.name === "AbortError")) return;
+      if (!request.isCurrent() || (error instanceof DOMException && error.name === "AbortError")) return;
       // The proposal stays so it can be retried or cancelled.
-      setStatus({ kind: "error", message: `Applying failed. ${describeError(error)} Your changes are kept and nothing was applied.` });
+      setStatus({ kind: "error", error, context: "apply" });
+    } finally {
+      request.done();
     }
   }
 
   function cancel() {
-    seq.current += 1;
-    controller.current?.abort();
-    controller.current = null;
+    invalidate();
     setProposal(null);
     setStatus({ kind: "idle" });
   }
@@ -185,9 +197,9 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
         them. Your original scenario and result stay as they are.
       </p>
       {!ready && (
-        <p className="text-sm text-slate-700" data-testid="whatif-not-ready">
+        <EmptyState testId="whatif-not-ready">
           Confirm and optimize the scenario first. A what-if is always compared with that result.
-        </p>
+        </EmptyState>
       )}
 
       <fieldset disabled={!ready || busy} className="space-y-3 rounded border border-slate-300 p-3">
@@ -271,10 +283,23 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
       </fieldset>
 
       <div aria-live="polite">
+        {status.kind === "proposing" && <Pending>Asking the model for a proposal…</Pending>}
+        {status.kind === "applying" && <Pending>Recalculating with your approved changes…</Pending>}
         {status.kind === "error" && (
-          <p role="alert" className="text-sm font-medium text-red-800" data-testid="whatif-error">
-            {status.message}
-          </p>
+          <AsyncError
+            error={status.error}
+            prefix={status.context === "propose" ? "Proposal failed." : status.context === "apply" ? "Applying failed." : undefined}
+            suffix={
+              status.context === "propose"
+                ? "Your description is kept."
+                : status.context === "apply"
+                  ? "Your changes are kept and nothing was applied."
+                  : undefined
+            }
+            manualHint="You can still enter a change yourself with the manual form."
+            onRetry={status.context === "propose" ? propose : status.context === "apply" ? apply : undefined}
+            testId="whatif-error"
+          />
         )}
         {status.kind === "notice" && (
           <p role="status" className="text-sm text-slate-800">

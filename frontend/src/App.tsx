@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
-import type { HealthResponse } from "../../contracts/models";
-import { ApiClient, describeError } from "./lib/api";
+import type { DataMode, HealthResponse } from "../../contracts/models";
+import { ApiClient } from "./lib/api";
+import { AsyncError, EmptyState, Pending } from "./components/AsyncState";
 import BusinessForm from "./components/BusinessForm";
 import ExtractionReview from "./components/ExtractionReview";
 import OptimizePanel from "./components/OptimizePanel";
@@ -11,7 +12,7 @@ import { initialState, scenarioReducer, validateForm } from "./state/scenario";
 type HealthState =
   | { kind: "checking" }
   | { kind: "ok"; health: HealthResponse }
-  | { kind: "unavailable"; message: string };
+  | { kind: "unavailable"; error: unknown };
 
 const NOT_BUILT = [
   "Saved profiles (optional enhancement)",
@@ -20,14 +21,31 @@ const NOT_BUILT = [
 
 export default function App() {
   const config = useMemo(() => readConfig(), []);
+  // The mode starts from VITE_DATA_MODE and only changes when the user switches it explicitly.
+  const [dataMode, setDataMode] = useState<DataMode>(config.dataMode);
   const client = useMemo(
-    () => new ApiClient({ apiBaseUrl: config.apiBaseUrl, dataMode: config.dataMode }),
-    [config],
+    () => new ApiClient({ apiBaseUrl: config.apiBaseUrl, dataMode }),
+    [config.apiBaseUrl, dataMode],
   );
   const [state, setState] = useState<HealthState>({ kind: "checking" });
-  const isFixture = config.dataMode === "fixture";
+  const [healthAttempt, setHealthAttempt] = useState(0);
+  const isFixture = dataMode === "fixture";
   const [scenario, dispatch] = useReducer(scenarioReducer, undefined, initialState);
   const validation = useMemo(() => validateForm(scenario.form), [scenario.form]);
+  const [switchNote, setSwitchNote] = useState<{ mode: DataMode; version: number } | null>(null);
+
+  // Switching mode is deliberate. It keeps what the user typed but drops everything produced
+  // under the other mode (confirmation, result, what-if) and cancels requests in flight.
+  function switchMode() {
+    const next: DataMode = dataMode === "fixture" ? "live" : "fixture";
+    dispatch({ type: "reset_derived" });
+    setDataMode(next);
+    setSwitchNote({ mode: next, version: scenario.version + 1 });
+  }
+  // The note goes away at the next edit.
+  useEffect(() => {
+    if (switchNote && scenario.version > switchNote.version) setSwitchNote(null);
+  }, [scenario.version, switchNote]);
 
   useEffect(() => {
     // The cleanup aborts the request so a late response can never overwrite newer state.
@@ -39,12 +57,12 @@ export default function App() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         // Live failures are shown as failures. There is no fallback to fixture data.
-        setState({ kind: "unavailable", message: describeError(error) });
+        setState({ kind: "unavailable", error });
       });
     return () => controller.abort();
-  }, [client]);
+  }, [client, healthAttempt]);
 
-  const modeMismatch = state.kind === "ok" && state.health.mode !== config.dataMode;
+  const modeMismatch = state.kind === "ok" && state.health.mode !== dataMode;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -64,6 +82,13 @@ export default function App() {
         {isFixture
           ? "FIXTURE MODE: SIMULATED data only. Nothing here comes from AWS."
           : "LIVE MODE: results come from the backend. Failures are shown, never replaced by sample data."}
+        <button
+          type="button"
+          onClick={switchMode}
+          className="ml-3 rounded border border-current bg-transparent px-2 py-0.5 text-xs font-medium"
+        >
+          {isFixture ? "Switch to live mode" : "Switch to fixture mode"}
+        </button>
       </div>
 
       <header className="border-b border-slate-200 bg-white">
@@ -81,9 +106,15 @@ export default function App() {
             {config.configError}
           </p>
         )}
+        {switchNote && (
+          <p role="status" data-testid="mode-switch-note" className="mb-4 rounded border border-slate-300 bg-white p-3 text-sm">
+            Switched to {switchNote.mode} mode. Confirmations, results and what-ifs from the other mode were cleared; what you
+            typed is kept. Confirm and optimize again.
+          </p>
+        )}
         {modeMismatch && state.kind === "ok" && (
           <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-900">
-            Mode mismatch: this app is in {config.dataMode} mode but the backend reports {state.health.mode} mode.
+            Mode mismatch: this app is in {dataMode} mode but the backend reports {state.health.mode} mode.
             Fix VITE_DATA_MODE or APP_MODE before trusting any result.
           </p>
         )}
@@ -162,11 +193,17 @@ export default function App() {
             <p className="mt-1 break-all text-sm text-slate-600" data-testid="api-base-url">
               {config.apiBaseUrl}
             </p>
-            <p className="mt-3 text-sm text-slate-700" data-testid="result-slot">
-              {scenario.result
-                ? "A result for the current inputs is available."
-                : "No result. Results and certificates are cleared whenever the inputs change."}
-            </p>
+            {scenario.result ? (
+              <p className="mt-3 text-sm text-slate-700" data-testid="result-slot">
+                A result for the current inputs is available.
+              </p>
+            ) : (
+              <div className="mt-3">
+                <EmptyState testId="result-slot">
+                  No result. Results and certificates are cleared whenever the inputs change.
+                </EmptyState>
+              </div>
+            )}
             <OptimizePanel
               client={client}
               confirmed={scenario.confirmed}
@@ -184,7 +221,7 @@ export default function App() {
               onDiscard={() => dispatch({ type: "clear_whatif" })}
             />
             <div className="mt-3" data-testid="health-state" aria-live="polite">
-              {state.kind === "checking" && <p>Checking /health…</p>}
+              {state.kind === "checking" && <Pending>Checking /health…</Pending>}
               {state.kind === "ok" && (
                 <p className="text-emerald-900">
                   Backend OK. Schema v{state.health.schemaVersion}, mode <strong>{state.health.mode}</strong>, commit{" "}
@@ -192,9 +229,12 @@ export default function App() {
                 </p>
               )}
               {state.kind === "unavailable" && (
-                <p role="alert" className="text-red-800">
-                  Backend unavailable. {state.message}
-                </p>
+                <AsyncError
+                  error={state.error}
+                  prefix="Backend unavailable."
+                  onRetry={() => setHealthAttempt((n) => n + 1)}
+                  testId="health-error"
+                />
               )}
             </div>
           </section>

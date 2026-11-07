@@ -221,7 +221,8 @@ export type ScenarioAction =
   | { type: "edit_business"; index: number; patch: BusinessPatch }
   | { type: "set_result"; forVersion: number; result: Result }
   | { type: "set_whatif"; forVersion: number; whatIf: Omit<WhatIf, "n" | "baseVersion"> }
-  | { type: "clear_whatif" };
+  | { type: "clear_whatif" }
+  | { type: "reset_derived" };
 
 export type BusinessPatch = Partial<Omit<FormBusiness, "estimates" | "requirement">> & {
   estimates?: Partial<Record<Service, string>>;
@@ -319,6 +320,10 @@ export function scenarioReducer(state: ScenarioState, action: ScenarioAction): S
     }
     case "clear_whatif":
       return { ...state, whatIf: null };
+    case "reset_derived":
+      // Used when the data mode is switched: keep what the user typed, drop everything that
+      // was produced under the other mode (confirmation, result, what-if) and invalidate requests.
+      return { ...state, version: state.version + 1, ...CLEARED };
   }
 }
 

@@ -23,6 +23,23 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
 /** Backend unreachable, timed out, or answered something that is not the v1 contract. */
 export class ApiUnavailableError extends Error {}
 
+/** No answer within the client timeout. The server may or may not have processed the request. */
+export class ApiTimeoutError extends ApiUnavailableError {}
+
+/** The request never completed: connection refused, dropped, blocked (for example by CORS). */
+export class ApiNetworkError extends ApiUnavailableError {}
+
+/** An HTTP error status whose body is not the v1 error envelope. */
+export class ApiHttpError extends ApiUnavailableError {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterSeconds?: number,
+  ) {
+    super(message);
+  }
+}
+
 /** The backend answered with the v1 error envelope. */
 export class ApiError extends Error {
   constructor(
@@ -31,6 +48,8 @@ export class ApiError extends Error {
     message: string,
     readonly fields: string[],
     readonly requestId: string,
+    /** From the Retry-After response header, when the server sent a usable one. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }
@@ -43,6 +62,61 @@ export interface ClientOptions {
   apiBaseUrl: string;
   dataMode: DataMode;
   timeoutMs?: number;
+  /** Automatic retries for GET /health only (a safe read). Mutations are never retried automatically. */
+  healthRetries?: number;
+  /** First backoff wait for an automatic retry; doubles each time. */
+  retryBaseMs?: number;
+  /** Longest wait the client will sit through on its own. A longer Retry-After is handed to the UI. */
+  maxRetryWaitMs?: number;
+  /** Replaceable for tests. Must reject with an AbortError when the signal aborts. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+export const DEFAULT_HEALTH_RETRIES = 2;
+export const DEFAULT_RETRY_BASE_MS = 250;
+export const DEFAULT_MAX_RETRY_WAIT_MS = 5_000;
+
+function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Retry-After as whole seconds. Accepts delta-seconds or an HTTP date; anything else is
+ * ignored (undefined). Never negative.
+ */
+export function parseRetryAfter(header: string | null | undefined, now: number = Date.now()): number | undefined {
+  if (header === null || header === undefined) return undefined;
+  const raw = header.trim();
+  if (/^\d{1,9}$/.test(raw)) return Number(raw);
+  // HTTP-date ("Wed, 21 Oct 2026 07:28:00 GMT") only. Date.parse alone would read "1.5" or "-5" as dates.
+  if (!/^[A-Za-z]{3,9},\s/.test(raw)) return undefined;
+  const when = Date.parse(raw);
+  if (Number.isNaN(when)) return undefined;
+  return Math.max(0, Math.ceil((when - now) / 1000));
+}
+
+/** True for failures that a later identical request may well get past. */
+export function isTransient(error: unknown): boolean {
+  if (error instanceof ApiTimeoutError || error instanceof ApiNetworkError) return true;
+  if (error instanceof ApiError) return error.status === 429 || error.status === 503;
+  if (error instanceof ApiHttpError) return [429, 502, 503, 504].includes(error.status);
+  return false;
+}
+
+/** Seconds the server asked us to wait, if any. */
+export function retryAfterOf(error: unknown): number | undefined {
+  return error instanceof ApiError || error instanceof ApiHttpError ? error.retryAfterSeconds : undefined;
 }
 
 export interface CallOptions {
@@ -132,12 +206,20 @@ export function describeError(error: unknown): string {
 export class ApiClient {
   private readonly apiBaseUrl: string;
   private readonly timeoutMs: number;
+  private readonly healthRetries: number;
+  private readonly retryBaseMs: number;
+  private readonly maxRetryWaitMs: number;
+  private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly dataMode: DataMode;
 
   constructor(options: ClientOptions) {
     this.apiBaseUrl = options.apiBaseUrl.replace(/\/+$/, "");
     this.dataMode = options.dataMode;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.healthRetries = options.healthRetries ?? DEFAULT_HEALTH_RETRIES;
+    this.retryBaseMs = options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS;
+    this.maxRetryWaitMs = options.maxRetryWaitMs ?? DEFAULT_MAX_RETRY_WAIT_MS;
+    this.sleep = options.sleep ?? defaultSleep;
   }
 
   private async request(path: string, init: RequestInit, signal?: AbortSignal): Promise<unknown> {
@@ -150,9 +232,9 @@ export class ApiClient {
       // A caller abort (superseded request, unmount) is not an error to display.
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (timeout.aborted || isAbort(error)) {
-        throw new ApiUnavailableError(`The backend at ${this.apiBaseUrl} did not answer within ${this.timeoutMs / 1000} s.`);
+        throw new ApiTimeoutError(`The backend at ${this.apiBaseUrl} did not answer within ${this.timeoutMs / 1000} s.`);
       }
-      throw new ApiUnavailableError(`Cannot reach the backend at ${this.apiBaseUrl}. Is it running?`);
+      throw new ApiNetworkError(`Cannot reach the backend at ${this.apiBaseUrl}. Is it running?`);
     }
     let body: unknown = undefined;
     try {
@@ -161,11 +243,12 @@ export class ApiClient {
       if (response.ok) throw new ApiUnavailableError(`Backend ${path} did not return JSON.`);
     }
     if (!response.ok) {
+      const retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
       if (isErrorEnvelope(body)) {
         const { code, message, fields, requestId } = body.error;
-        throw new ApiError(response.status, code, message, fields, requestId);
+        throw new ApiError(response.status, code, message, fields, requestId, retryAfter);
       }
-      throw new ApiUnavailableError(`Backend answered HTTP ${response.status} for ${path}.`);
+      throw new ApiHttpError(`Backend answered HTTP ${response.status} for ${path}.`, response.status, retryAfter);
     }
     return body;
   }
@@ -190,9 +273,28 @@ export class ApiClient {
     return body;
   }
 
-  /** GET /health. */
+  /**
+   * GET /health. The only call that retries by itself, because it is a safe read: up to
+   * `healthRetries` more attempts for transient failures, waiting the server's Retry-After
+   * when given (and short enough), else a doubling backoff. POST calls are never retried here.
+   */
   async health(options?: CallOptions): Promise<HealthResponse> {
-    const body = await this.request("/health", { method: "GET" }, options?.signal);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.healthOnce(options?.signal);
+      } catch (error) {
+        if (attempt >= this.healthRetries || !isTransient(error)) throw error;
+        const asked = retryAfterOf(error);
+        const waitMs = asked !== undefined ? asked * 1000 : this.retryBaseMs * 2 ** attempt;
+        // A longer wait than we are willing to sit through goes to the user instead.
+        if (waitMs > this.maxRetryWaitMs) throw error;
+        await this.sleep(waitMs, options?.signal);
+      }
+    }
+  }
+
+  private async healthOnce(signal?: AbortSignal): Promise<HealthResponse> {
+    const body = await this.request("/health", { method: "GET" }, signal);
     if (!isHealthResponse(body)) {
       throw new ApiUnavailableError("Backend /health response does not match the v1 contract.");
     }

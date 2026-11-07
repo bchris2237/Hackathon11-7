@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { BusinessMetrics, Result, Scenario } from "../../../contracts/models";
-import { ApiClient, describeError } from "../lib/api";
+import { ApiClient } from "../lib/api";
+import { AsyncError, Pending, useLatestRequest } from "./AsyncState";
 import { formatDuration } from "../state/scenario";
 import { describeMinutes } from "./NetworkGraph";
 
@@ -166,7 +167,7 @@ type ExplainState =
   | { kind: "idle" }
   | { kind: "pending" }
   | { kind: "ready"; text: string; mode: string }
-  | { kind: "error"; message: string };
+  | { kind: "error"; error: unknown };
 
 /**
  * Optional prose from POST /explain. It is shown below the numbers, labelled as generated text,
@@ -175,32 +176,27 @@ type ExplainState =
 function ExplainSection({ scenario, result, client }: Props) {
   const headingId = useId();
   const [state, setState] = useState<ExplainState>({ kind: "idle" });
-  const seq = useRef(0);
-  const controller = useRef<AbortController | null>(null);
+  const { start, invalidate } = useLatestRequest();
 
-  // A different result (or scenario) makes any earlier explanation stale.
+  // A different result, scenario or client (mode) makes any earlier explanation stale.
   useEffect(() => {
-    seq.current += 1;
-    controller.current?.abort();
-    controller.current = null;
+    invalidate();
     setState({ kind: "idle" });
-  }, [result, scenario]);
-  useEffect(() => () => controller.current?.abort(), []);
+  }, [result, scenario, client, invalidate]);
 
   async function run() {
-    controller.current?.abort();
-    const next = new AbortController();
-    controller.current = next;
-    seq.current += 1;
-    const id = seq.current;
+    const request = start();
+    if (!request) return; // already running: no double submit
     setState({ kind: "pending" });
     try {
-      const response = await client.explain({ scenario, result }, { signal: next.signal });
-      if (id !== seq.current) return;
+      const response = await client.explain({ scenario, result }, { signal: request.signal });
+      if (!request.isCurrent()) return;
       setState({ kind: "ready", text: response.text, mode: response.mode });
     } catch (error) {
-      if (id !== seq.current || (error instanceof DOMException && error.name === "AbortError")) return;
-      setState({ kind: "error", message: describeError(error) });
+      if (!request.isCurrent() || (error instanceof DOMException && error.name === "AbortError")) return;
+      setState({ kind: "error", error });
+    } finally {
+      request.done();
     }
   }
 
@@ -217,10 +213,15 @@ function ExplainSection({ scenario, result, client }: Props) {
       >
         {state.kind === "pending" ? "Explaining…" : "Explain these results"}
       </button>
+      {state.kind === "pending" && <Pending>Writing the explanation…</Pending>}
       {state.kind === "error" && (
-        <p role="alert" className="mt-1 text-sm text-red-800">
-          Explanation unavailable. {state.message} The numbers above are unaffected.
-        </p>
+        <AsyncError
+          error={state.error}
+          prefix="Explanation unavailable."
+          suffix="The numbers above are unaffected."
+          onRetry={run}
+          testId="explain-error"
+        />
       )}
       {state.kind === "ready" && (
         <div className="mt-1 text-sm" data-testid="explain-text">
