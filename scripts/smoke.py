@@ -397,13 +397,19 @@ def check_frontend(site: str, api: str, report: Report) -> None:
     assets = re.findall(r'(?:src|href)="(/[^"]+\.(?:js|css))"', html)[:10]
     leaks: list[str] = []
     mentions_api = False
+    missing: list[str] = []
     for path in assets:
         asset = call("GET", site + path)
+        if asset.status != 200:
+            missing.append(f"{path} -> HTTP {asset.status}")
+            continue
         text = asset.body.decode("utf-8", "replace")
         leaks += [f"{path}:{p.pattern}" for p in CREDENTIAL_PATTERNS if p.search(text)]
         mentions_api = mentions_api or api in text
-    report.add("PASS" if assets and not leaks else "FAIL", "no credential patterns in the shipped bundle", f"{len(assets)} asset(s) scanned" + (f", FOUND {leaks}" if leaks else ""))
-    report.add("INFO", "bundle is built for this API URL", "yes" if mentions_api else "API URL not found in the bundle (check VITE_API_BASE_URL in Amplify and rebuild)")
+    # A 404 page contains no credentials either, so "nothing found" proves nothing unless every asset really loaded.
+    report.add("PASS" if assets and not missing else "FAIL", "every JS and CSS file the page references loads (HTTP 200)", f"{len(assets)} asset(s)" + (f", MISSING {missing}" if missing else ""))
+    report.add("PASS" if assets and not missing and not leaks else "FAIL", "no credential patterns in the shipped bundle", f"{len(assets) - len(missing)} asset(s) scanned" + (f", FOUND {leaks}" if leaks else ""))
+    report.add("PASS" if mentions_api else "FAIL", "the bundle is built for this API URL", "yes" if mentions_api else "API URL not found in the bundle (check VITE_API_BASE_URL and rebuild)")
     deep = call("GET", site + "/some/deep/link")
     report.add("PASS" if deep.status == 200 and 'id="root"' in deep.body.decode("utf-8", "replace") else "FAIL", "SPA rewrite: a deep link serves the app, not a 404", f"HTTP {deep.status}")
 

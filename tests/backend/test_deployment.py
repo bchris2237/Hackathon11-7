@@ -612,7 +612,50 @@ def test_frontend_check_passes_for_a_clean_bundle_with_a_working_spa_rewrite(ser
     code, out = run_smoke(capsys, "--api-url", base, "--expect-commit", "test123", "--origin", ORIGIN, "--frontend-url", url)
     assert code == 0, out
     assert "PASS     no credential patterns in the shipped bundle" in out and "PASS     SPA rewrite: a deep link serves the app, not a 404" in out
-    assert "bundle is built for this API URL  |  yes" in out
+    assert "PASS     the bundle is built for this API URL  |  yes" in out and "PASS     every JS and CSS file the page references loads (HTTP 200)" in out
+
+
+def test_a_page_whose_script_is_a_404_fails_loudly_instead_of_scanning_the_error_page(served, site, capsys):
+    """Found in production: a zip with backslash paths left index.html up but every asset 404. A 404 page has no credentials either."""
+    base, _ = served(full_adapters)
+
+    class Missing(Site):
+        bundle = ""
+
+        def do_GET(self):  # noqa: N802 - http.server API
+            if self.path.startswith("/assets/"):
+                self._send(404, "not found", "text/plain")
+            else:
+                self._send(200, '<html><body><div id="root"></div><script src="/assets/app.js"></script></body></html>', "text/html")
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Missing)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        code, out = run_smoke(capsys, "--api-url", base, "--expect-commit", "test123", "--origin", ORIGIN, "--frontend-url", f"http://127.0.0.1:{httpd.server_address[1]}")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert code == 1
+    assert "FAIL     every JS and CSS file the page references loads (HTTP 200)" in out and "/assets/app.js -> HTTP 404" in out
+    assert "FAIL     no credential patterns in the shipped bundle" in out, "nothing was actually scanned, so it must not pass"
+
+
+def test_a_bundle_built_for_another_api_address_fails(served, site, capsys):
+    base, _ = served(full_adapters)
+    url = site("fetch('https://some-other-api.example/health')")
+    code, out = run_smoke(capsys, "--api-url", base, "--expect-commit", "test123", "--origin", ORIGIN, "--frontend-url", url)
+    assert code == 1 and "FAIL     the bundle is built for this API URL" in out
+
+
+def test_frontend_deploy_script_zips_with_forward_slashes_and_checks_before_uploading():
+    script = (ROOT / "scripts" / "deploy_frontend.ps1").read_text(encoding="utf-8")
+    assert '.Replace("\\", "/")' in script, "Compress-Archive writes backslash entry names, which made every asset a 404 on Amplify"
+    assert "Contains(\"\\\\\")" in script or 'Contains("\\")' in script, "the zip is re-read and refused if any entry still has a backslash"
+    upload = script.index("create-deployment")
+    for guard in ("credential-looking string", "does not contain the API address", "backslash entry names"):
+        assert script.index(guard) < upload, f"'{guard}' must be checked before anything is uploaded"
+    assert "StatusCode -ne 200" in script, "every asset is fetched from the public URL after the deployment"
+    assert "zipUploadUrl" in script and "Write-Host $created" not in script, "the signed upload URL is never printed"
 
 
 @pytest.mark.parametrize("leak", ["const k='AKIAABCDEFGHIJKLMNOP'", "aws_secret_access_key=abc", "X-Amz-Security-Token", "import.meta.env.VITE_AWS_KEY"])
