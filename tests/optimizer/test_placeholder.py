@@ -1,15 +1,37 @@
-"""Phase 0 placeholder check. Developer 1 replaces this file when prompt A1 starts.
-
-The optimizer does not exist yet. This test pins that fact: the placeholder must
-raise instead of returning plausible-looking numbers.
 """
+Phase 0 placeholder test — superseded by A1 implementation.
+Now confirms that the solver is IMPLEMENTED (no longer raises NotImplementedError)
+and that basic smoke checks pass.
+
+Developer 1 owns this file. Full contract tests are in test_contract.py.
+"""
+import json
+from pathlib import Path
 
 import pytest
 
-import optimizer
+from contracts.models import Scenario
+from optimizer.solver import solve, verify
+
+FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 
 
-def test_optimizer_placeholder_fails_honestly():
-    assert optimizer.STATUS == "not_implemented"
-    with pytest.raises(optimizer.OptimizerNotImplementedError):
-        optimizer.optimize({})
+def _load_scenario(filename: str) -> Scenario:
+    data = json.loads((FIXTURES_DIR / filename).read_text())
+    return Scenario.model_validate(data["scenario"])
+
+
+def test_solve_is_implemented():
+    """A1: solver must NOT raise NotImplementedError any more."""
+    scenario = _load_scenario("canonical.json")
+    result = solve(scenario)  # should not raise
+    assert result is not None
+    assert result.schemaVersion == "1"
+
+
+def test_verify_is_implemented():
+    """A1: verify must NOT raise NotImplementedError any more."""
+    scenario = _load_scenario("canonical.json")
+    result = solve(scenario)
+    verified = verify(scenario, result)
+    assert verified is not None
