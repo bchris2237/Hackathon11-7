@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import binascii
 import concurrent.futures
+import contextvars
 import dataclasses
 import json
 import logging
@@ -45,6 +46,7 @@ from pydantic import BaseModel, ValidationError
 
 from backend.config import ConfigError, Settings, load_settings
 from backend.confirmation import confirm_scenario, validate_scenario
+from backend.telemetry import emit, request_usage
 from backend.middleware import (
     ClientRateLimiter,
     check_content_type,
@@ -314,30 +316,29 @@ class App:
         started = time.monotonic()
         request_id = clean_request_id(request.request_id) if request.request_id else uuid.uuid4().hex
         template, profile_id = match_route(request.path)
-        try:
-            response = self._dispatch(request, request_id, template, profile_id)
-        except ApiError as exc:
-            response = Response(
-                exc.status, envelope(exc.code, exc.message, request_id, exc.fields), dict(exc.headers)
+        with request_usage() as usage:  # model calls made while handling this request are summed here
+            try:
+                response = self._dispatch(request, request_id, template, profile_id)
+            except ApiError as exc:
+                response = Response(
+                    exc.status, envelope(exc.code, exc.message, request_id, exc.fields), dict(exc.headers)
+                )
+            except Exception as exc:  # a bug on our side: say so without leaking details
+                emit(log, "unhandled", requestId=request_id, errorType=type(exc).__name__)
+                response = Response(500, envelope("INTERNAL_ERROR", "Internal server error.", request_id))
+            response = self._with_common_headers(request, response, request_id, template)
+            emit(
+                log,
+                "request",
+                requestId=request_id,
+                method=clean_text(request.method, 16),
+                route=template or "(unmatched)",
+                status=response.status,
+                durationMs=round((time.monotonic() - started) * 1000, 1),
+                errorCode=response.body.get("error", {}).get("code") if response.status >= 400 else None,
+                mode=self.settings.mode,
+                **usage.snapshot(),
             )
-        except Exception as exc:  # a bug on our side: say so without leaking details
-            log.error(json.dumps({"event": "unhandled", "requestId": request_id, "errorType": type(exc).__name__}))
-            response = Response(500, envelope("INTERNAL_ERROR", "Internal server error.", request_id))
-        response = self._with_common_headers(request, response, request_id, template)
-        log.info(
-            json.dumps(
-                {
-                    "event": "request",
-                    "requestId": request_id,
-                    "method": clean_text(request.method, 16),
-                    "route": template or "(unmatched)",
-                    "status": response.status,
-                    "durationMs": round((time.monotonic() - started) * 1000, 1),
-                    "errorCode": response.body.get("error", {}).get("code") if response.status >= 400 else None,
-                    "mode": self.settings.mode,
-                }
-            )
-        )
         return response
 
     def handle_event(self, event: Any, context: Any = None) -> dict[str, Any]:
@@ -393,7 +394,7 @@ class App:
             check_content_type(request.headers)
         wait = self._limiter.check(request.client or "unknown")
         if wait is not None:
-            log.info(json.dumps({"event": "client_rate_limited", "requestId": request_id, "client": client_label(request.client)}))
+            emit(log, "client_rate_limited", requestId=request_id, client=client_label(request.client))
             raise rate_limited(wait)
 
         if request.transport_error is not None:
@@ -451,7 +452,8 @@ class App:
                 self._slots.release()
 
         try:
-            future = self._executor.submit(work)
+            # contextvars do not cross a thread pool by themselves: run the adapter in a copy of this request's context
+            future = self._executor.submit(contextvars.copy_context().run, work)
         except BaseException:
             self._slots.release()
             raise
@@ -471,7 +473,7 @@ class App:
         mode = getattr(checked, "mode", None)
         if mode is not None and mode.root != self.settings.mode:
             # A fixture adapter wired into live (or the reverse) must fail loudly, not pass as real.
-            log.error(json.dumps({"event": "mode_mismatch", "appMode": self.settings.mode, "adapterMode": mode.root}))
+            emit(log, "mode_mismatch", appMode=self.settings.mode, adapterMode=mode.root)
             raise ApiError(500, "INTERNAL_ERROR", "Internal server error.")
         body = checked.model_dump(mode="json")
         for key in endpoint.drop_none:

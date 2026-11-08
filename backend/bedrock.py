@@ -39,6 +39,7 @@ from botocore.exceptions import (
 
 from backend.config import ConfigError
 from backend.errors import ApiError, Throttled, Unavailable, clean_text
+from backend.telemetry import emit, record_model_call
 
 log = logging.getLogger("trademind.bedrock")
 log.setLevel(logging.INFO)
@@ -238,13 +239,16 @@ class BedrockClient:
         except ClientError as exc:
             error = map_client_error(exc)
             self._log("error", aws_request_id_from(exc.response), started, errorCode=exc.response.get("Error", {}).get("Code"), status=error.status)
+            record_model_call(input_tokens=None, output_tokens=None, latency_ms=(time.monotonic() - started) * 1000, ok=False)
             raise error from None
         except BotoCoreError as exc:
             error = map_botocore_error(exc)
             self._log("error", "unknown", started, errorType=type(exc).__name__, status=error.status)
+            record_model_call(input_tokens=None, output_tokens=None, latency_ms=(time.monotonic() - started) * 1000, ok=False)
             raise error from None
 
         reply = self._parse(raw, started)
+        record_model_call(input_tokens=reply.input_tokens, output_tokens=reply.output_tokens, latency_ms=reply.latency_ms, ok=True)
         self._log(
             "ok",
             reply.aws_request_id,
@@ -285,16 +289,13 @@ class BedrockClient:
         )
 
     def _log(self, outcome: str, aws_request_id: str, started: float, **extra: Any) -> None:
-        log.info(
-            json.dumps(
-                {
-                    "event": "bedrock_call",
-                    "outcome": outcome,
-                    "awsRequestId": aws_request_id,
-                    "modelId": self.settings.model_id,
-                    "region": self.settings.region,
-                    "latencyMs": round((time.monotonic() - started) * 1000, 1),
-                    **extra,
-                }
-            )
+        emit(
+            log,
+            "bedrock_call",
+            outcome=outcome,
+            awsRequestId=aws_request_id,
+            modelId=self.settings.model_id,
+            region=self.settings.region,
+            latencyMs=round((time.monotonic() - started) * 1000, 1),
+            **extra,
         )

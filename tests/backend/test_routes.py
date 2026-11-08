@@ -569,7 +569,7 @@ def test_logs_contain_request_metadata_but_never_bodies_or_headers(canonical, ca
     lines = [json.loads(r.message) for r in caplog.records if r.name == "trademind.api"]
     assert {line["requestId"] for line in lines} == {"log-1", "log-2"}
     first = lines[0]
-    assert set(first) == {"event", "requestId", "method", "route", "status", "durationMs", "errorCode", "mode"}
+    assert set(first) == {"event", "requestId", "method", "route", "status", "durationMs", "errorCode", "mode", "modelCalls", "modelErrors", "modelMs", "inputTokens", "outputTokens"}
     assert first["route"] == "/optimize" and first["status"] == 422 and first["errorCode"] == "VALIDATION_ERROR"
 
 
