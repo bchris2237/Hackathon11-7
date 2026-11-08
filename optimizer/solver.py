@@ -50,21 +50,31 @@ from optimizer.explain import (
     analyze_bottlenecks as _analyze_bottlenecks,
     sensitivity_report as _sensitivity_report,
 )
+from optimizer.models import (
+    DEFAULT_CONFIG,
+    ExtendedModeError,
+    OptimizerConfig,
+    candidate_count_upper_bound,
+    validate_scenario_bounds,
+)
 
 
 # ---------------------------------------------------------------------------
 # A1 — solve and verify
 # ---------------------------------------------------------------------------
 
-def solve(scenario: Scenario) -> Result:
+def solve(scenario: Scenario, config=None) -> Result:
     """
     Find the unique optimal assignment for the scenario.
 
     Returns Result with status collaboration | no_exchange | infeasible.
     Raises optimizer.errors.MissingBaselineError (→ 422) when an owner
     has no estimate for one of its own deliverable services.
+
+    config (A9): optional OptimizerConfig to gate extended 4/5-business mode.
+    When None, historical behaviour is preserved.
     """
-    return _solve(scenario)
+    return _solve(scenario, config)
 
 
 def verify(scenario: Scenario, result: Result) -> Result:
@@ -83,12 +93,14 @@ def verify(scenario: Scenario, result: Result) -> Result:
 # A2 — optimize alias and enumerate_assignments
 # ---------------------------------------------------------------------------
 
-def optimize(scenario: Scenario) -> Result:
+def optimize(scenario: Scenario, config=None) -> Result:
     """
     Alias for solve() — A2 public entrypoint name used by the backend.
     Identical behaviour; either name is stable for B4 integration.
+
+    config (A9): optional OptimizerConfig to gate extended 4/5-business mode.
     """
-    return _optimize(scenario)
+    return _optimize(scenario, config)
 
 
 def enumerate_assignments(scenario: Scenario) -> list[dict[str, str]]:
@@ -206,6 +218,11 @@ __all__ = [
     "BottleneckReport",
     "SensitivityReport",
     "TestedCandidate",
+    "OptimizerConfig",
+    "DEFAULT_CONFIG",
+    "ExtendedModeError",
+    "validate_scenario_bounds",
+    "candidate_count_upper_bound",
 ]
 
 

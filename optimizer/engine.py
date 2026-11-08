@@ -350,16 +350,18 @@ def enumerate_assignments(scenario: Scenario) -> list[dict[str, str]]:
     ]
 
 
-def optimize(scenario: Scenario) -> Result:
+def optimize(scenario: Scenario, config=None) -> Result:
     """
     Public alias for solve() — satisfies the A2 naming requirement.
     Calls solve() which contains the full enumeration + tiebreak logic.
     The backend and tests may import either name; both are stable.
+
+    config (A9): optional OptimizerConfig to gate extended 4/5-business mode.
     """
-    return solve(scenario)
+    return solve(scenario, config)
 
 
-def solve(scenario: Scenario) -> Result:
+def solve(scenario: Scenario, config=None) -> Result:
     """
     Find the unique optimal assignment for the scenario.
 
@@ -367,7 +369,20 @@ def solve(scenario: Scenario) -> Result:
       collaboration — feasible assignment with cross-business exchange and positive net savings
       no_exchange   — feasible (even self-assignment) but no beneficial collaboration
       infeasible    — not even self-assignment satisfies effort ≤ capacity and netSavings ≥ 0
+
+    config (A9): optional OptimizerConfig. When provided, the scenario's
+    business/deliverable/candidate bounds are gated:
+      - extended_mode=False → exactly 3 businesses (MVP default)
+      - extended_mode=True  → 3..5 businesses allowed
+    When config is None (the historical default), no extended gating is applied
+    and the solver accepts whatever the Pydantic contract already permitted
+    (3..5 businesses), preserving all prior behaviour.
+    Raises optimizer.models.ExtendedModeError if bounds are violated.
     """
+    if config is not None:
+        from optimizer.models import validate_scenario_bounds  # lazy import
+        validate_scenario_bounds(scenario, config)
+
     # Index estimates
     estimates: dict[str, dict[ServiceName, int]] = {
         b.id: {e.service: e.minutes for e in b.estimates}
