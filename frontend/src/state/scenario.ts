@@ -3,6 +3,7 @@
 // Internally all durations are integer minutes; the UI shows hours only when that is exact.
 import type { Change, DataMode, Draft, Result, Scenario, Service } from "../../../contracts/models";
 import canonicalFixture from "../../../fixtures/canonical.json";
+import extractionFixture from "../../../fixtures/extraction.json";
 
 export const SERVICES: readonly Service[] = ["coding", "design", "writing"];
 export const MAX_MINUTES = 1_000_000;
@@ -84,9 +85,16 @@ export function formatDuration(minutes: number): string {
 
 // ---- fixture loading --------------------------------------------------------------------
 
-/** Builds a fresh form from the fictional canonical fixture. Never returns shared references. */
+/**
+ * Builds a fresh form from the fictional canonical fixture. Never returns shared references.
+ * The three descriptions are the fictional texts the extraction fixture uses for the same businesses, so "Load fictional sample"
+ * followed by "Extract draft" works without typing anything. They are not part of the Scenario wire type.
+ */
 export function loadCanonicalForm(): ScenarioForm {
   const scenario = structuredClone(canonicalFixture) as unknown as Scenario;
+  const sampleDescriptions = new Map<string, string>(
+    (extractionFixture.request.descriptions as { id: string; text: string }[]).map((d) => [d.id, d.text]),
+  );
   return {
     businesses: scenario.businesses.map((b) => {
       const deliverable = scenario.deliverables.find((d) => d.ownerId === b.id);
@@ -95,7 +103,7 @@ export function loadCanonicalForm(): ScenarioForm {
       return {
         id: b.id,
         name: b.name,
-        description: "",
+        description: sampleDescriptions.get(b.id) ?? "",
         capacity: formatDuration(b.capacityMinutes),
         coordination: formatDuration(b.coordinationMinutes),
         estimates,
