@@ -49,6 +49,8 @@ describe("extraction preview", () => {
   it("shows original text, proposed fields, quotes and highlights missing values (fixture)", async () => {
     const calls = stubBackend({ "/extract": () => Response.json(extraction.response) });
     const user = await prepare();
+    // CopyCo's coordination box is empty, as it would be if the user never typed it.
+    fireEvent.change(screen.getByLabelText("Business 3 coordination (hours)"), { target: { value: "" } });
     await user.click(screen.getByRole("button", { name: "Extract draft" }));
 
     const review = await screen.findByTestId("extraction-review");
@@ -205,5 +207,19 @@ describe("contract guards", () => {
   it("the frontend package carries no AWS SDK", () => {
     const pkg = readFileSync(resolve(root, "frontend/package.json"), "utf8");
     expect(pkg).not.toMatch(/aws-sdk|@aws-sdk|amazon/i);
+  });
+});
+
+describe("extraction keeps what the user entered", () => {
+  it("does not wipe a typed value the description leaves out, and the description wins where it states one", async () => {
+    stubBackend({ "/extract": () => Response.json(extraction.response) });
+    const user = await prepare();
+    fireEvent.change(screen.getByLabelText("Business 3 coordination (hours)"), { target: { value: "1.5" } });
+    await user.click(screen.getByRole("button", { name: "Extract draft" }));
+    await screen.findByTestId("extraction-review");
+    // The description never states CopyCo's coordination, so the typed value stays.
+    expect(screen.getByLabelText("Business 3 coordination (hours)")).toHaveValue("1.5");
+    // Names the description does state come from the draft.
+    expect(screen.getByLabelText("Business 1 description")).toHaveValue(extraction.request.descriptions[0].text);
   });
 });

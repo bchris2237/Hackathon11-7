@@ -4,7 +4,7 @@ import { ApiClient } from "../lib/api";
 import { AsyncError, Pending, useLatestRequest } from "./AsyncState";
 import {
   SERVICES,
-  draftToForm,
+  mergeDraftIntoForm,
   formatDuration,
   type ScenarioForm,
   type Validation,
@@ -150,8 +150,9 @@ export default function ExtractionReview({ client, form, version, validation, co
       const texts = Object.fromEntries(sent.map((d) => [d.id, d.text]));
       setReview({ response, sent });
       setExtractStatus({ kind: "idle" });
-      // Nothing is confirmed: the draft only fills the editable form, with blanks where null.
-      onApplyDraft(draftToForm(response.draft, texts));
+      // Nothing is confirmed: the draft fills the editable form on top of what the user already entered
+      // (values the description states win; values it leaves out keep what was typed; nothing is invented).
+      onApplyDraft(mergeDraftIntoForm(form, response.draft, texts));
     } catch (error) {
       if (!request.isCurrent() || (error instanceof DOMException && error.name === "AbortError")) return;
       // The user's form is untouched. No fallback data is substituted.
