@@ -362,6 +362,20 @@ SCENARIOS: dict[str, Assumptions] = {
         steps=_session_steps(694, 386, "measured"),
         cold_starts_per_month=600,
     ),
+    # Amazon Nova 2 Lite counts tokens differently. One live /extract call on the deployed stack (2026-11-07) used 674 input and 581 output
+    # tokens (application log and Bedrock CloudWatch metrics agree). The other model steps keep the same assumed counts as above.
+    "demo-nova": Assumptions(
+        name="Hackathon demo: 100 sessions in a month (Nova extract tokens)",
+        sessions_per_month=100,
+        steps=_session_steps(674, 581, "measured"),
+        cold_starts_per_month=30,
+    ),
+    "busy-nova": Assumptions(
+        name="Busy public demo: 10,000 sessions in a month (Nova extract tokens)",
+        sessions_per_month=10_000,
+        steps=_session_steps(674, 581, "measured"),
+        cold_starts_per_month=600,
+    ),
 }
 
 

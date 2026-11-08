@@ -406,8 +406,11 @@ def test_the_worksheet_documents_every_rate_the_model_uses_and_the_totals_it_com
         assert needle in text, f"docs/aws-costs.md should mention: {needle}"
     for price in ("1.10", "5.50", "0.0000166667", "0.20", "1.00", "0.50", "0.03", "0.01", "0.023", "0.15", "0.33", "2.75", "0.625", "0.125"):
         assert price in text, f"rate {price} is used by the model but not documented"
-    for model, label in (("claude-haiku-4-5-us-profile", "Claude Haiku 4.5 (us. profile)"), ("nova-2-lite", "Amazon Nova 2 Lite")):
-        for key in ("demo", "busy"):
+    for model, label, keys in (
+        ("claude-haiku-4-5-us-profile", "Claude Haiku 4.5 (us. profile)", ("demo", "busy")),
+        ("nova-2-lite", "Amazon Nova 2 Lite", ("demo-nova", "busy-nova")),
+    ):
+        for key in keys:
             total = usd(estimate_monthly_cost(SCENARIOS[key], PRICES[model]).total)
             assert f"${total:,}" in text, f"the worksheet's total for {label} / {key} (${total:,}) is out of date; rerun python -m backend.telemetry"
 

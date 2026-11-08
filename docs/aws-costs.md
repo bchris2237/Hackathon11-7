@@ -47,27 +47,28 @@ One "session" is a person going through the whole demo once. Each session makes 
 
 Other assumptions, all **assumed** unless stated: Lambda memory 512 MB (the deployed value); cold starts 30 a month (demo) or 600 (busy) at **3,300 ms** billed each (**measured**: two cold starts billed 3,338 and 3,212 ms);
 1 KiB of log per request; 14-day log retention (the deployed value); 10 frontend builds a month at 3 minutes; 5 MB of site; 1 page load per session at 0.1 MB; profile storage **off**.
-The Nova rows reuse the Claude token counts. Tokenisers differ between models, so Nova's real counts are **UNKNOWN** until measured.
+The Nova columns use Nova's own **measured** extract tokens (674 in, 581 out, from one live call on the deployed stack, see section 4). Its explain and proposal token counts are **assumed** (the same as the Claude assumptions), because they have not been measured on Nova.
 
 ## 3. Estimated monthly cost (list price, free tiers excluded)
 
-Scenario A, **demo**: 100 sessions in a month (700 API requests, 300 model calls, 179,400 input and 73,600 output tokens).
-Scenario B, **busy**: 10,000 sessions in a month (70,000 API requests, 30,000 model calls, 17.94M input and 7.36M output tokens).
+Scenario A, **demo**: 100 sessions in a month (700 API requests, 300 model calls). Claude: 179,400 input and 73,600 output tokens. Nova: 177,400 input and 93,100 output tokens.
+Scenario B, **busy**: 10,000 sessions in a month (70,000 API requests, 30,000 model calls). Claude: 17.94M input and 7.36M output tokens. Nova: 17.74M input and 9.31M output tokens.
+(In code these are `demo` and `busy` for Claude and `demo-nova` and `busy-nova` for Nova.)
 
 | Line | A, Haiku 4.5 `us.` | B, Haiku 4.5 `us.` | A, Nova 2 Lite | B, Nova 2 Lite |
 |---|---:|---:|---:|---:|
-| Bedrock input tokens | $0.20 | $19.73 | $0.06 | $5.92 |
-| Bedrock output tokens | $0.40 | $40.48 | $0.20 | $20.24 |
+| Bedrock input tokens | $0.20 | $19.73 | $0.06 | $5.85 |
+| Bedrock output tokens | $0.40 | $40.48 | $0.26 | $25.60 |
 | Lambda duration | $0.00 | $0.39 | $0.00 | $0.39 |
 | Lambda requests | $0.00 | $0.01 | $0.00 | $0.01 |
 | API Gateway HTTP API requests | $0.00 | $0.07 | $0.00 | $0.07 |
 | CloudWatch Logs ingestion and storage | $0.00 | $0.03 | $0.00 | $0.03 |
 | Amplify builds, storage, data served | $0.30 | $0.45 | $0.30 | $0.45 |
-| **Total** | **$0.91** | **$61.17** | **$0.57** | **$27.12** |
+| **Total** | **$0.91** | **$61.17** | **$0.62** | **$32.41** |
 
 Lines are rounded to cents separately, so a column can differ from its total by a cent. Under the free tiers (Lambda 1M requests and 400,000 GB-seconds a month; API Gateway 1M calls for new accounts for 12 months) the Lambda and API lines would be zero.
 
-What the numbers say: **the language model is about 98% of the cost at the busy volume**; Lambda, API Gateway, logs and hosting together are under a dollar. The cheapest lever is the model choice and the token counts, not the AWS infrastructure.
+What the numbers say: **the language model is about 98% of the cost at the busy volume** (Claude: $60.21 of $61.17; Nova: $31.45 of $32.41, about 97%); Lambda, API Gateway, logs and hosting together are under a dollar. The cheapest lever is the model choice and the token counts, not the AWS infrastructure.
 Reserved concurrency (5), the API throttle and the per-call token cap (1,500) bound how large a month can get, but they are not a budget. Set a Budgets alert (docs/deployment.md section 2b and 5b); **an alert is not a spending cap**.
 
 ## 4. Measured, with the evidence
@@ -81,10 +82,20 @@ One live call on the deployed stack (2026-11-07, Claude Haiku 4.5 through the `u
 | Model latency | 1,452 ms (`latencyMs`) | `InvocationLatency` average: 1,366 ms | close (ours includes the client and network round trip, Bedrock's does not) |
 | Lambda | `REPORT`: Duration 1,457 ms, Billed 1,457 ms, Memory 512 MB, Max used 97 MB | none (this is AWS's own line) | n/a |
 
+A second live call, on **Amazon Nova 2 Lite** after the stack was moved to it (same route, same canonical descriptions):
+
+| What | Our application log | Independent source | Agree? |
+|---|---|---|---|
+| Input tokens | 674 (request line and `bedrock_call` line) | CloudWatch `AWS/Bedrock` `InputTokenCount` for `us.amazon.nova-2-lite-v1:0`: 674 | yes |
+| Output tokens | 581 | `OutputTokenCount`: 581 | yes |
+| Model time | 1,936 ms | not compared | n/a |
+
+The same descriptions cost 674/581 tokens on Nova and 694/386 on Claude: output differs by about 50%. Token counts are model specific, which is why the worksheet keeps them separate.
+
 Warm requests that make no model call billed 2 to 3 ms each (about 30 sampled `REPORT` lines). Max memory used was 94 to 97 MB of 512 MB, so 256 MB would probably be enough; that is a possible saving, but the saving is under a cent at demo volume, so it is **not** worth the risk of changing it.
 This is **one** model call. It is a measurement, not a distribution: p95 and p99 latency are **UNKNOWN** until there is more traffic (the Logs Insights query below produces them).
 
-Metrics that could not be measured and are therefore **UNKNOWN**: token counts for `/explain` and the text proposal (the optimizer is not deployed, and Anthropic models stopped working on this account after the first call, see the runbook); anything for Nova inside the application (a direct probe of Nova 2 Lite returned usage but was not an application call); real log bytes per request.
+Metrics that could not be measured and are therefore **UNKNOWN**: token counts for `/explain` and the text proposal on either model (the optimizer is not deployed, so those routes cannot run); real log bytes per request; the quality of Nova's extraction compared with Claude's (the live draft differed from the fixture only in a missing coordination value, which the response reports in `missingFields`, but this is one sample).
 
 ## 5. Not included (each would add to a real bill)
 
@@ -145,7 +156,7 @@ Telemetry that had to drop something: `filter telemetryDropped > 0`.
 
 | Symptom | Likely cause | What to check, who acts |
 |---|---|---|
-| `502 MODEL_ACCESS_DENIED` on `/extract`, log `bedrock_call outcome=error errorCode=AccessDeniedException` | Model access. **Seen on this account:** the first Claude call worked, later calls failed with a message that the caller lacks the `aws-marketplace:ViewSubscriptions` and `aws-marketplace:Subscribe` actions needed to enable the model | **Human with account rights.** A role that cannot subscribe cannot enable Anthropic models. Either grant those actions, enable the model in the console as an admin, or use a model without a Marketplace subscription. Amazon Nova 2 Lite answered a direct `Converse` call with this role. Changing the model is a stack parameter (`BedrockModelId` and its ARNs) and a redeploy |
+| `502 MODEL_ACCESS_DENIED` on `/extract`, log `bedrock_call outcome=error errorCode=AccessDeniedException` | Model access. **Seen on this account:** the first Claude call worked, later calls failed with a message that the caller lacks the `aws-marketplace:ViewSubscriptions` and `aws-marketplace:Subscribe` actions needed to enable the model | **Human with account rights.** A role that cannot subscribe cannot enable Anthropic models. Either grant those actions, enable the model in the console as an admin, or use a model without a Marketplace subscription. Amazon Nova 2 Lite answered a direct `Converse` call with this role, and the stack was moved to it (parameters `BedrockModelId` and `BedrockResourceArns`, then a redeploy) and `/extract` worked again |
 | `429 THROTTLED`, log `client_rate_limited` | One address over `CLIENT_RATE_PER_MINUTE` or `CLIENT_BURST` | Expected under a script; raise the stack parameters if a real group shares an address |
 | `429 THROTTLED`, no `client_rate_limited` line | Container in-flight cap (`MaxInFlight`) or a Bedrock throttle (`bedrock_call errorCode=ThrottlingException`) | Check `modelErrors`; Bedrock quotas are in Service Quotas |
 | API Gateway's own `429` (body not ours) | Account or stage throttle (`ThrottleRatePerSecond`, `ThrottleBurst`) | Raise deliberately; it is the global protection |
