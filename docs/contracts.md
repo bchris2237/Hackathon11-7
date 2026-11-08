@@ -51,13 +51,19 @@ certificate; any other status must have them); `Change` accepts only the three t
 These cannot be expressed in JSON Schema. Phase 0 only checks them on the fixtures
 (`test_fixture_semantic_rules`). The B-track and A-track validators must enforce them at runtime:
 
-- business ids unique; deliverable ids unique
-- every `ownerId` references an existing business; every `Change.businessId` references one
-- at most one estimate per service per business
-- each owner has an estimate for its own required service, otherwise **422 `MISSING_BASELINE`**
+- business ids unique; deliverable ids unique: **enforced since B3** (`validate_scenario` in `backend/confirmation.py`, used by `/confirm`, `/optimize` and, since B4, `/explain`)
+- every `ownerId` references an existing business: **enforced since B3**. Every `Change.businessId` references one: **enforced since B5** (`apply_changes` in `backend/simulation.py`, 422 `UNKNOWN_TARGET`)
+- at most one estimate per service per business: **enforced since B3**
+- each owner has an estimate for its own required service, otherwise **422 `MISSING_BASELINE`**: **enforced since B3**
+  (fields look like `scenario.businesses[2].estimates.coding`)
+
+`fields` paths use one style on every route: names joined by dots, array indexes in brackets
+(`scenario.businesses[0].estimates[2].service`). Since B3 this includes schema errors, which used to print
+`scenario.businesses.0.estimates.2.service`. A UI needs one parser for `fields` and for `/extract`'s `missingFields` paths.
 - `SimulateRequest`: text together with non-empty `changes`, or text with `apply: true`, is rejected.
-  The JSON Schema rejects it, but the generated Pydantic model cannot, so two parity cases are marked xfail
-- request size 32 KiB (`MAX_BODY_BYTES` in `backend/app.py` is defined but not enforced yet)
+  The JSON Schema rejects it, but the generated Pydantic model cannot, so two parity cases are marked xfail.
+  **Enforced since B1** in `App._check_request_rules` (`backend/app.py`) and tested in `tests/backend/test_routes.py`
+- request size 32 KiB: **enforced since B1** (`MAX_BODY_BYTES`, 413 `PAYLOAD_TOO_LARGE`, before any parsing)
 - digest and certificate recomputation (Certificate verification is recomputed by the backend)
 
 ## Decision: the MVP has exactly 3 businesses
@@ -76,3 +82,11 @@ The case "four businesses (MVP is exactly 3)" in `fixtures/contract-cases.json` 
 To enable the 5-business extension later, it is a joint contract change: raise those four maxItems values to 5
 (and `Scenario.businesses` maxItems), add valid fixtures for 4 and 5, remove the four-businesses invalid case,
 regenerate, rerun all tests, and update the UI layout and optimizer tests.
+
+## Optional profile routes (B7): documentation additions, no schema change
+
+`PUT /profiles/{id}` and `GET /profiles/{id}` keep their request and response schemas. B7 only documents more error responses in
+`contracts/api.openapi.yaml`: `400`, `409` (`PROFILE_EXISTS`), `413`, `429` for PUT and `404` (`PROFILE_NOT_FOUND`), `422`, `429` for GET.
+Behaviour a client (Developer 3) must know: the client invents the id (at least 32 URL-safe characters from a cryptographic random
+source; weak ids are `422` with `fields: ["id"]`), an id can be written once, a profile expires (default one day), and with no table configured both
+routes answer `503 PERSISTENCE_DISABLED`. The routes are optional; the main workflow must not depend on them.

@@ -1,22 +1,18 @@
-"""Deterministic optimizer. Owner: Developer 1 (after the Phase 0 handoff).
+"""Deterministic optimizer (Developer 1's package).
 
-STATUS: NOT IMPLEMENTED. Prompts A1-A6 build this package. Until then
-`optimize` raises instead of returning plausible-looking numbers, so nothing
-can mistake this placeholder for a working solver.
+STATUS: IMPLEMENTED. The exact bounded solver, independent certificate, what-if engine and analysis helpers live in the modules of
+this package; `optimizer.api` is the dict-in, dict-out seam the backend imports:
+
+    from optimizer.api import optimize, simulate, verify
+
+Nothing here calls AWS, a language model, a network or a file. See docs/integration-notes.md for how the package relates to the
+shared contract (`optimizer.contract` holds the plain-typed models this package uses; the wire format is the frozen v1 schema).
 """
 
 from __future__ import annotations
 
-from typing import Any
+from optimizer.api import optimize, simulate, verify
 
-STATUS = "not_implemented"
+STATUS = "implemented"
 
-
-class OptimizerNotImplementedError(NotImplementedError):
-    """Raised by the Phase 0 placeholder."""
-
-
-def optimize(scenario: Any) -> Any:
-    raise OptimizerNotImplementedError(
-        "The optimizer is not implemented yet (Phase 0 placeholder, prompts A1-A6)."
-    )
+__all__ = ["STATUS", "optimize", "simulate", "verify"]

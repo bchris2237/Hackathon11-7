@@ -64,7 +64,7 @@ import json
 from itertools import product as cartesian_product
 from typing import NamedTuple
 
-from contracts.models import (
+from optimizer.contract import (
     Assignment,
     BusinessMetrics,
     Certificate,
@@ -77,6 +77,7 @@ from contracts.models import (
     Totals,
 )
 from optimizer.errors import MissingBaselineError
+from optimizer.ratio import ratio_rank
 
 
 # ---------------------------------------------------------------------------
@@ -291,18 +292,10 @@ def _tiebreak_key(
                Special case: baseline_i == 0 → treat ratio as infinity (largest possible int).
     Tertiary:  sorted list of (deliverableId, providerId) pairs.
     """
-    total_baseline = totals.baselineMinutes
-
-    def _ratio_proxy(m: BusinessMetrics) -> int:
-        if m.baselineMinutes == 0:
-            return 10 ** 15  # effectively infinite
-        # effort/baseline represented as effort * total_baseline (integer, comparable)
-        return m.effortMinutes * total_baseline
-
-    max_ratio = max(_ratio_proxy(m) for m in metrics) if metrics else 0
-
+    # The worst individual effort/baseline share, compared exactly (see optimizer.ratio): no division, no float, and a
+    # zero baseline ranks as the largest possible share.
+    max_ratio = max((ratio_rank(m.effortMinutes, m.baselineMinutes) for m in metrics), default=ratio_rank(0, 1))
     tertiary = sorted((a.deliverableId, a.providerId) for a in assignments)
-
     return (totals.effortMinutes, max_ratio, tertiary)
 
 
@@ -404,7 +397,10 @@ def solve(scenario: Scenario, config=None) -> Result:
     # Collect provider lists in deliverable order
     provider_lists = [feasible_providers[d_id] for d_id in deliverable_ids]
 
-    best_collab: tuple | None = None   # (key, assignments, metrics, totals)
+    # The frozen contract picks ONE best allocation among all feasible ones (least total effort, then the smallest worst
+    # effort/baseline share, then provider ids) and labels it collaboration only if it is strictly beneficial. A feasible
+    # allocation with no beneficial exchange is NOT an empty result: it is the best self-production plan, labelled no_exchange.
+    best_overall: tuple | None = None  # (key, assignments, metrics, totals, is_collaboration)
     any_feasible = False
 
     for combo in cartesian_product(*provider_lists):
@@ -419,41 +415,42 @@ def solve(scenario: Scenario, config=None) -> Result:
 
         any_feasible = True
 
-        if _is_collaboration(assignment_map, owner_map, totals.netSavingsMinutes):
-            key = _tiebreak_key(assignments, metrics, totals)
-            if best_collab is None or key < best_collab[0]:
-                best_collab = (key, assignments, metrics, totals)
+        key = _tiebreak_key(assignments, metrics, totals)
+        if best_overall is None or key < best_overall[0]:
+            best_overall = (
+                key, assignments, metrics, totals,
+                _is_collaboration(assignment_map, owner_map, totals.netSavingsMinutes),
+            )
 
     # --- Determine outcome ---
 
-    if best_collab is not None:
-        _, assignments, metrics, totals = best_collab
+    if best_overall is not None:
+        _, assignments, metrics, totals, is_collaboration = best_overall
         cert = _build_certificate(scenario, assignments)
-        return Result(
-            schemaVersion="1",
-            status=ResultStatus.COLLABORATION,
-            assignments=assignments,
-            businessMetrics=metrics,
-            totals=totals,
-            reasons=[],
-            certificate=cert,
-        )
-
-    if any_feasible:
+        if is_collaboration:
+            return Result(
+                schemaVersion="1",
+                status=ResultStatus.COLLABORATION,
+                assignments=assignments,
+                businessMetrics=metrics,
+                totals=totals,
+                reasons=[],
+                certificate=cert,
+            )
         return Result(
             schemaVersion="1",
             status=ResultStatus.NO_EXCHANGE,
-            assignments=[],
-            businessMetrics=None,
-            totals=None,
+            assignments=assignments,
+            businessMetrics=metrics,
+            totals=totals,
             reasons=[Reason(
                 code="NO_BENEFICIAL_EXCHANGE",
                 message=(
-                    "No cross-business assignment improves total net savings "
-                    "while keeping every participant no worse off."
+                    "A valid allocation exists, but no cross-business exchange has strictly positive total net "
+                    "savings while keeping every business no worse off. The least-effort valid plan is shown."
                 ),
             )],
-            certificate=None,
+            certificate=cert,
         )
 
     # Infeasible — even self-assignment failed
@@ -477,68 +474,43 @@ def solve(scenario: Scenario, config=None) -> Result:
 # ---------------------------------------------------------------------------
 
 def _build_certificate(scenario: Scenario, assignments: list[Assignment]) -> Certificate:
-    s_digest = _scenario_digest(scenario)
-    a_digest = _assignment_digest(assignments)
+    """Certificate for a valid allocation.
 
-    assumptions = [
-        "Service quality is assumed equal across all providers.",
-        "Coordination charge is fixed per business per exchange, independent of volume.",
-        "All supplied duration estimates are accepted as stated; no market pricing.",
-        "Integer minutes arithmetic; no floating-point rounding.",
-        "No-worse-off constraint: netSavingsMinutes >= 0 for every business.",
-    ]
+    Built by the independent certificate module (A5), which re-derives coverage, service compatibility, durations, capacity,
+    the no-worse-off rule, totals and the digests from the scenario and the assignment list alone. It states only checks that
+    were actually run: whether an exchange is BENEFICIAL is the result status, not something this certificate claims.
+    """
+    from optimizer.certificate import generate_certificate  # lazy: certificate.py does not import the engine, keep it that way
 
-    checks = [
-        CertificateCheck(name="all_net_savings_non_negative", passed=True),
-        CertificateCheck(name="all_effort_within_capacity", passed=True),
-        CertificateCheck(name="at_least_one_cross_business_assignment", passed=True),
-        CertificateCheck(name="total_net_savings_positive", passed=True),
-        CertificateCheck(name="integer_arithmetic_only", passed=True),
-    ]
-
-    return Certificate(
-        schemaVersion="1",
-        scenarioDigest=s_digest,
-        allocationDigest=a_digest,
-        verification="valid",
-        assumptions=assumptions,
-        checks=checks,
-    )
+    return generate_certificate(scenario, assignments)
 
 
 def verify(scenario: Scenario, result: Result) -> Result:
     """
     Independently recompute the result from the scenario and the assignment list.
-    Returns a new Result with a fresh certificate.
-    Raises ValueError if the claimed assignments do not satisfy the constraints.
 
+    Returns a new Result with a fresh certificate. The STATUS is recomputed too, so a client cannot relabel a plan.
+    Raises ValueError if the claimed assignments do not satisfy the constraints.
     The backend must call this before supplying computed values to Bedrock (/explain).
     Never trust client-supplied math.
     """
     if result.status == ResultStatus.INFEASIBLE:
-        # Nothing to verify arithmetically — just return a clean copy
+        # Nothing to verify arithmetically. Re-run the solver: an "infeasible" claim for a scenario that has a valid
+        # allocation is a false claim and must not be passed through.
+        recomputed = solve(scenario)
+        if recomputed.status != ResultStatus.INFEASIBLE:
+            raise ValueError("The result claims the scenario is infeasible, but a valid allocation exists.")
         return Result(
             schemaVersion="1",
             status=ResultStatus.INFEASIBLE,
             assignments=[],
             businessMetrics=None,
             totals=None,
-            reasons=result.reasons,
+            reasons=recomputed.reasons,
             certificate=None,
         )
 
-    if result.status == ResultStatus.NO_EXCHANGE:
-        return Result(
-            schemaVersion="1",
-            status=ResultStatus.NO_EXCHANGE,
-            assignments=[],
-            businessMetrics=None,
-            totals=None,
-            reasons=result.reasons,
-            certificate=None,
-        )
-
-    # Collaboration — recompute everything from the supplied assignments
+    # Collaboration or no_exchange: recompute everything from the supplied assignments
     estimates: dict[str, dict[ServiceName, int]] = {
         b.id: {e.service: e.minutes for e in b.estimates}
         for b in scenario.businesses
@@ -550,32 +522,41 @@ def verify(scenario: Scenario, result: Result) -> Result:
     # Rebuild assignment_map from supplied list
     assignment_map = {a.deliverableId: a.providerId for a in result.assignments}
 
-    # Verify all deliverables are covered
+    # Verify all deliverables are covered exactly once
     expected_ids = {d.id for d in scenario.deliverables}
     supplied_ids = set(assignment_map.keys())
-    if expected_ids != supplied_ids:
+    if expected_ids != supplied_ids or len(result.assignments) != len(expected_ids):
         raise ValueError(
-            f"Assignment covers {supplied_ids} but scenario has {expected_ids}"
+            f"Assignment covers {sorted(supplied_ids)} but scenario has {sorted(expected_ids)}"
         )
 
     # Recompute
     feasible, assignments, metrics, totals = _evaluate_candidate(
         assignment_map, scenario, estimates, baselines, service_map, owner_map
     )
-
     if not feasible:
         raise ValueError(
             "Supplied assignments violate capacity or no-worse-off constraints."
         )
 
     cert = _build_certificate(scenario, assignments)
-
+    if _is_collaboration(assignment_map, owner_map, totals.netSavingsMinutes):
+        status, reasons = ResultStatus.COLLABORATION, []
+    else:
+        status = ResultStatus.NO_EXCHANGE
+        reasons = [Reason(
+            code="NO_BENEFICIAL_EXCHANGE",
+            message=(
+                "A valid allocation exists, but no cross-business exchange has strictly positive total net "
+                "savings while keeping every business no worse off. The least-effort valid plan is shown."
+            ),
+        )]
     return Result(
         schemaVersion="1",
-        status=ResultStatus.COLLABORATION,
+        status=status,
         assignments=assignments,
         businessMetrics=metrics,
         totals=totals,
-        reasons=[],
+        reasons=reasons,
         certificate=cert,
     )

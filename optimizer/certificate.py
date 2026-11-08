@@ -47,7 +47,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 
-from contracts.models import (
+from optimizer.contract import (
     Assignment,
     Certificate,
     CertificateCheck,

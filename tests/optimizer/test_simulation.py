@@ -22,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts.models import Scenario
+from tests.optimizer import _fixtures
+from optimizer.contract import Scenario
 from optimizer.simulation import (
     ResultDiff,
     SimulationError,
@@ -39,7 +40,8 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def _load(name: str) -> dict:
-    return json.loads((FIXTURES_DIR / name).read_text())
+    return _fixtures.load(name)
+
 
 
 def _scenario(name: str) -> Scenario:
@@ -69,7 +71,7 @@ def _estimate_change(business_id: str, service: str, minutes: int) -> dict:
 
 def _parse_changes(raw: list[dict]) -> list:
     """Parse raw change dicts into typed Change objects via Pydantic."""
-    from contracts.models import CapacityChange, CoordinationChange, EstimateChange
+    from optimizer.contract import CapacityChange, CoordinationChange, EstimateChange
     result = []
     for c in raw:
         if c["kind"] == "capacity":

@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from contracts.models import Scenario
+from tests.optimizer import _fixtures
+from optimizer.contract import Scenario
 from optimizer.models import (
     DEFAULT_CONFIG,
     MAX_CANDIDATES,
@@ -173,7 +174,7 @@ class TestMvpDefaultPreserved:
 
     def test_three_business_default_still_works(self):
         scenario = Scenario.model_validate(
-            json.loads((FIXTURES_DIR / "canonical.json").read_text())["scenario"]
+            _fixtures.load("canonical.json")["scenario"]
         )
         # No config → historical behaviour
         assert optimize(scenario).status.value == "collaboration"
@@ -294,7 +295,7 @@ class TestCandidateCap:
 
     def test_candidate_count_canonical(self):
         scenario = Scenario.model_validate(
-            json.loads((FIXTURES_DIR / "canonical.json").read_text())["scenario"]
+            _fixtures.load("canonical.json")["scenario"]
         )
         # Each deliverable has 2 providers → 2^3 = 8
         assert candidate_count_upper_bound(scenario) == 8

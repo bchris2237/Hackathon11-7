@@ -32,7 +32,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts.models import Assignment, Scenario, ServiceName
+from tests.optimizer import _fixtures
+from optimizer.contract import Assignment, Scenario, ServiceName
 from optimizer.errors import MissingBaselineError
 from optimizer.feasibility import (
     AssignmentViolation,
@@ -50,7 +51,8 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def _load(name: str) -> dict:
-    return json.loads((FIXTURES_DIR / name).read_text())
+    return _fixtures.load(name)
+
 
 
 def _scenario(name: str) -> Scenario:
