@@ -57,6 +57,13 @@ from optimizer.models import (
     candidate_count_upper_bound,
     validate_scenario_bounds,
 )
+from optimizer.risk import (
+    EstimatePerturbation,
+    PerturbationOutcome,
+    PerturbationScenario,
+    RiskReport,
+    evaluate_risk as _evaluate_risk,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +230,28 @@ __all__ = [
     "ExtendedModeError",
     "validate_scenario_bounds",
     "candidate_count_upper_bound",
+    "evaluate_risk",
+    "EstimatePerturbation",
+    "PerturbationScenario",
+    "PerturbationOutcome",
+    "RiskReport",
 ]
+
+
+# ---------------------------------------------------------------------------
+# A10 — evaluate_risk
+# ---------------------------------------------------------------------------
+
+def evaluate_risk(scenario, perturbations) -> RiskReport:
+    """
+    Evaluate scenario sensitivity to a finite, explicit set of estimate
+    perturbations by rerunning the solver on each.
+
+    Preserves the certified nominal result unchanged. Reports the worst
+    OBSERVED outcome across the tested perturbations. Makes NO probabilistic
+    claims — this is sensitivity analysis, not probability.
+    """
+    return _evaluate_risk(scenario, perturbations)
 
 
 # ---------------------------------------------------------------------------
