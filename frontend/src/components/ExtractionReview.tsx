@@ -41,8 +41,31 @@ const hours = (minutes: number) => {
   return text.endsWith("m") ? text.replace("m", " min") : `${text} h`;
 };
 
-function Missing({ children }: { children?: React.ReactNode }) {
-  return (
+/**
+ * Plain-language version of a form error path such as "businesses[2].coordination". The technical path stays visible next to it
+ * (support and tests use it); this only says, in words, which business and which box, and what a person can do about it.
+ */
+function describeBlocker(path: string, message: string, form: ScenarioForm): string {
+  const m = /^businesses\[(\d+)\]\.(\w+)/.exec(path);
+  if (!m) return message;
+  const business = form.businesses[Number(m[1])];
+  const who = business?.name.trim() || business?.id.trim() || `Business ${Number(m[1]) + 1}`;
+  const box: Record<string, string> = {
+    id: "ID",
+    name: "name",
+    capacity: "capacity (hours)",
+    coordination: "coordination (hours)",
+    deliverableId: "deliverable ID",
+    estimates: "estimates",
+  };
+  const label = box[m[2]] ?? m[2];
+  if (m[2] === "coordination" && /required/i.test(message)) {
+    return `${who}: fill in ${label}. Its description does not say how long coordinating takes. Type 0 if it costs no extra time.`;
+  }
+  return `${who}, ${label}: ${message}`;
+}
+
+function Missing({ children }: { children?: React.ReactNode }) {  return (
     <span className="inline-block max-w-full rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-900" data-testid="missing-badge">
       MISSING{children ? `: ${children}` : ""}
     </span>
@@ -268,7 +291,8 @@ export default function ExtractionReview({ client, form, version, validation, co
             <ul className="list-disc pl-5">
               {validation.errors.slice(0, 8).map((e) => (
                 <li key={e.path}>
-                  <code>{e.path}</code>: {e.message}
+                  <span data-testid="blocker-plain">{describeBlocker(e.path, e.message, form)}</span>{" "}
+                  <code className="text-xs text-slate-600">({e.path})</code>
                 </li>
               ))}
             </ul>

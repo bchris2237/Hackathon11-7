@@ -92,8 +92,15 @@ export function formatDuration(minutes: number): string {
  */
 export function loadCanonicalForm(): ScenarioForm {
   const scenario = structuredClone(canonicalFixture) as unknown as Scenario;
+  // The extraction fixture leaves CopyCo's coordination time unstated on purpose (it exercises "missing value" handling). For the
+  // interactive sample that would make Load, Extract, Confirm stop at one empty box, so a sample text that never mentions
+  // coordination gets the same plain sentence DevCo's text uses. This is sample text only; the fixture itself is unchanged.
+  const COORDINATION_SENTENCE = "Coordinating with another business costs us nothing extra.";
   const sampleDescriptions = new Map<string, string>(
-    (extractionFixture.request.descriptions as { id: string; text: string }[]).map((d) => [d.id, d.text]),
+    (extractionFixture.request.descriptions as { id: string; text: string }[]).map((d) => [
+      d.id,
+      /coordinat/i.test(d.text) ? d.text : `${d.text.replace(/\s*$/, "")} ${COORDINATION_SENTENCE}`,
+    ]),
   );
   return {
     businesses: scenario.businesses.map((b) => {

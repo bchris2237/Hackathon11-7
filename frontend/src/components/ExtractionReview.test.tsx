@@ -65,6 +65,7 @@ describe("extraction preview", () => {
     expect(screen.getByLabelText("Business 3 coordination (hours)")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Confirm scenario" })).toBeDisabled();
     expect(screen.getByTestId("confirm-blockers")).toHaveTextContent("businesses[2].coordination");
+    expect(screen.getByTestId("blocker-plain")).toBeInTheDocument();
     expect(screen.queryByTestId("confirmed-note")).not.toBeInTheDocument();
   });
 
