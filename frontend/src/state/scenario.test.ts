@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import canonical from "../../../fixtures/canonical.json";
 import disruption from "../../../fixtures/disruption.json";
+import extraction from "../../../fixtures/extraction.json";
 import type { Change, Result, Scenario } from "../../../contracts/models";
 import {
   applyChanges,
@@ -89,6 +90,23 @@ describe("canonical loader", () => {
     scenarioReducer(state, { type: "edit_business", index: 0, patch: { capacity: "1", estimates: { coding: "9" } } });
     expect(JSON.stringify(canonical)).toBe(before);
     expect(loadCanonicalForm().businesses[0].capacity).toBe("10");
+  });
+
+  it("fills each business description with the fictional text the extraction fixture uses, so Load then Extract works", () => {
+    const form = loadCanonicalForm();
+    for (const sent of extraction.request.descriptions) {
+      const business = form.businesses.find((b) => b.id === sent.id);
+      expect(business, sent.id).toBeDefined();
+      expect(business!.description).toBe(sent.text);
+      expect(business!.description.length).toBeGreaterThan(40);
+    }
+    expect(form.businesses.map((b) => b.id)).toEqual(extraction.request.descriptions.map((d) => d.id));
+  });
+
+  it("keeps the sample form free of shared references (editing one load never changes the next)", () => {
+    const a = loadCanonicalForm();
+    a.businesses[0].description = "changed";
+    expect(loadCanonicalForm().businesses[0].description).not.toBe("changed");
   });
 });
 

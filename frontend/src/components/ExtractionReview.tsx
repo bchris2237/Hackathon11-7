@@ -43,7 +43,7 @@ const hours = (minutes: number) => {
 
 function Missing({ children }: { children?: React.ReactNode }) {
   return (
-    <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-900" data-testid="missing-badge">
+    <span className="inline-block max-w-full rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-900" data-testid="missing-badge">
       MISSING{children ? `: ${children}` : ""}
     </span>
   );
@@ -52,7 +52,7 @@ function Missing({ children }: { children?: React.ReactNode }) {
 function ProposedFields({ business, ownService }: { business: DraftBusiness; ownService: string | undefined }) {
   const estimate = (service: string) => business.estimates?.find((e) => e.service === service)?.minutes;
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm [&_dd]:min-w-0">
       <dt className="font-medium">Capacity</dt>
       <dd>{business.capacityMinutes === null ? <Missing /> : hours(business.capacityMinutes)}</dd>
       <dt className="font-medium">Coordination</dt>
@@ -225,7 +225,7 @@ export default function ExtractionReview({ client, form, version, validation, co
               );
               const original = review.sent.find((d) => d.id === business.id)?.text;
               return (
-                <article key={business.id} className="grid gap-3 rounded bg-slate-50 p-3 md:grid-cols-3" aria-label={`Review of ${business.name}`}>
+                <article key={business.id} className="grid grid-cols-1 gap-3 rounded bg-slate-50 p-3 [&>div]:min-w-0" aria-label={`Review of ${business.name}`}>
                   <div>
                     <h4 className="text-sm font-semibold">{business.name}: original text</h4>
                     <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{original ?? "(not sent)"}</p>
@@ -244,7 +244,7 @@ export default function ExtractionReview({ client, form, version, validation, co
                       <ul className="mt-1 space-y-1 text-sm">
                         {quotes.map((q) => (
                           <li key={`${q.path}-${q.quote}`}>
-                            <code className="text-xs text-slate-600">{q.path}</code>
+                            <code className="break-all text-xs text-slate-600">{q.path}</code>
                             <blockquote className="border-l-2 border-slate-400 pl-2">{q.quote}</blockquote>
                           </li>
                         ))}
