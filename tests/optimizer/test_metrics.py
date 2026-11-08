@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts.models import BusinessMetrics, Scenario, Totals
+from tests.optimizer import _fixtures
+from optimizer.contract import BusinessMetrics, Scenario, Totals
 from optimizer.metrics import (
     ScoredCandidate,
     _score_key,
@@ -36,7 +37,8 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def _load(name: str) -> dict:
-    return json.loads((FIXTURES_DIR / name).read_text())
+    return _fixtures.load(name)
+
 
 
 def _scenario(name: str) -> Scenario:
@@ -415,7 +417,6 @@ class TestRankAllocationOrdering:
 
     def test_coordination_fixture_ranked_correctly(self):
         scenario = _scenario("coordination.json")
-        opt = _load("coordination.json")["expected_result"]
         # The optimal map for coordination fixture
         coord_map = {
             "d-design":  "designco",
@@ -504,8 +505,9 @@ class TestRankAllocationZeroBaseline:
         assert isinstance(result, list)
 
     def test_zero_baseline_ratio_proxy_is_sentinel(self):
-        """_score_key uses _RATIO_INF for zero-baseline businesses."""
-        from optimizer.metrics import _score_key, _RATIO_INF
+        """_score_key ranks a zero-baseline business above every finite share."""
+        from optimizer.metrics import _score_key
+        from optimizer.ratio import ratio_rank
         scenario = _make_scenario(
             businesses=[
                 {"id": "devco",    "name": "A", "capacityMinutes": 9999, "coordinationMinutes": 0,
@@ -523,8 +525,9 @@ class TestRankAllocationZeroBaseline:
         amap = {"d-design": "devco", "d-writing": "designco"}
         m, t = compute_metrics(scenario, amap)
         key = _score_key(amap, m, t)
-        # key[1] is max_ratio — copyco has baseline=0 → _RATIO_INF
-        assert key[1] == _RATIO_INF
+        # key[1] is the worst share. copyco has baseline 0, which ranks above every finite share.
+        assert key[1] == ratio_rank(1, 0)
+        assert key[1] > ratio_rank(10**9, 1)
 
 
 class TestComputeMetricsMatchesOptimizer:

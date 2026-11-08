@@ -10,14 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from contracts.models import Scenario
+from tests.optimizer import _fixtures
+from optimizer.contract import Scenario
 from optimizer.solver import solve, verify
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 
 
 def _load_scenario(filename: str) -> Scenario:
-    data = json.loads((FIXTURES_DIR / filename).read_text())
+    data = _fixtures.load(filename)
     return Scenario.model_validate(data["scenario"])
 
 

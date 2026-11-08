@@ -15,6 +15,7 @@ Key A2 requirements covered:
   - Provider lists are owner-first, others lexicographic
   - No floating-point minutes anywhere
 """
+from fractions import Fraction
 import json
 from copy import deepcopy
 from itertools import product as cartesian_product
@@ -22,7 +23,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts.models import (
+from tests.optimizer import _fixtures
+from optimizer.contract import (
     ResultStatus,
     Scenario,
     ServiceName,
@@ -38,7 +40,8 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def _load(name: str) -> dict:
-    return json.loads((FIXTURES_DIR / name).read_text())
+    return _fixtures.load(name)
+
 
 
 def _scenario(name: str) -> Scenario:
@@ -131,10 +134,11 @@ def _brute_force_oracle(scenario: Scenario) -> dict | None:
         total_baseline = sum(baselines[b.id] for b in scenario.businesses)
         total_effort = sum(effort[b.id] for b in scenario.businesses)
 
-        def _ratio(bid: str) -> int:
+        def _ratio(bid: str):
+            # Independent of the module under test: an exact fraction; a zero baseline is larger than any finite share.
             if baselines[bid] == 0:
-                return 10 ** 15
-            return effort[bid] * total_baseline
+                return (1, Fraction(0))
+            return (0, Fraction(effort[bid], baselines[bid]))
 
         max_ratio = max(_ratio(b.id) for b in scenario.businesses)
         tertiary = sorted(amap.items())

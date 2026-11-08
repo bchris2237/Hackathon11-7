@@ -17,13 +17,14 @@ failures are deterministic and minimal examples are preserved by Hypothesis's
 Run: python -m pytest tests/optimizer/test_properties.py -q
 """
 from __future__ import annotations
+from fractions import Fraction
 
 from itertools import product as cartesian_product
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from contracts.models import (
+from optimizer.contract import (
     Assignment,
     Result,
     ResultStatus,
@@ -178,9 +179,10 @@ def _oracle_best(scenario: Scenario):
         total_effort = sum(effort.values())
 
         def _ratio(bid):
+            # Independent of the module under test: an exact fraction; a zero baseline is larger than any finite share.
             if baselines[bid] == 0:
-                return 10 ** 15
-            return effort[bid] * total_baseline
+                return (1, Fraction(0))
+            return (0, Fraction(effort[bid], baselines[bid]))
 
         max_ratio = max(_ratio(b.id) for b in scenario.businesses)
         key = (total_effort, max_ratio, sorted(amap.items()))
@@ -301,12 +303,13 @@ class TestSolverInvariants:
 
     @_SETTINGS
     @given(valid_scenarios())
-    def test_no_exchange_has_no_assignments(self, raw):
+    def test_no_exchange_is_a_valid_self_production_plan(self, raw):
         scenario = Scenario.model_validate(raw)
         result = optimize(scenario)
         if result.status == ResultStatus.NO_EXCHANGE:
-            assert result.assignments == []
-            assert result.certificate is None
+            assert sorted(a.deliverableId for a in result.assignments) == sorted(d.id for d in scenario.deliverables)
+            assert result.businessMetrics is not None and result.totals is not None and result.certificate is not None
+            assert result.totals.netSavingsMinutes == 0
 
     @_SETTINGS
     @given(valid_scenarios())
@@ -402,7 +405,7 @@ class TestMonotonicFeasibility:
         before = optimize(scenario)
 
         # Raise every capacity to the maximum
-        from contracts.models import CapacityChange
+        from optimizer.contract import CapacityChange
         changes = [
             CapacityChange(kind="capacity", businessId=b.id, minutes=1_000_000)
             for b in scenario.businesses
@@ -426,7 +429,7 @@ class TestMonotonicFeasibility:
         if before.status != ResultStatus.COLLABORATION:
             return
 
-        from contracts.models import CapacityChange
+        from optimizer.contract import CapacityChange
         changes = [
             CapacityChange(kind="capacity", businessId=b.id, minutes=1_000_000)
             for b in scenario.businesses

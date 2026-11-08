@@ -918,5 +918,7 @@ def test_real_optimizer_cross_track_smoke():
         # Totals and per-business figures must equal the independent stand-in's. (Digests/reason wording may differ.)
         expected = reference_optimize(copy.deepcopy(SCENARIOS[name]))
         assert response.body["result"]["totals"] == expected["totals"], name
-        assert response.body["result"]["businessMetrics"] == expected["businessMetrics"], name
+        # The contract does not order businessMetrics; the real optimizer sorts by business id for a stable answer regardless of input order.
+        by_id = lambda metrics: None if metrics is None else sorted(metrics, key=lambda m: m["businessId"])  # null only when infeasible
+        assert by_id(response.body["result"]["businessMetrics"]) == by_id(expected["businessMetrics"]), name
     app.close()

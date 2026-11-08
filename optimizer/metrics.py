@@ -65,7 +65,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from contracts.models import (
+from optimizer.contract import (
     Assignment,
     BusinessMetrics,
     Scenario,
@@ -73,6 +73,7 @@ from contracts.models import (
     Totals,
 )
 from optimizer.errors import MissingBaselineError
+from optimizer.ratio import ratio_rank
 
 # Sentinel for zero-baseline ratio proxy (effectively infinite)
 _RATIO_INF: int = 10 ** 15
@@ -261,13 +262,6 @@ def _score_key(
                max(effort_i / baseline_i).  Zero baseline → _RATIO_INF.
     Tertiary:  sorted [(deliverableId, providerId)] pairs lexicographically.
     """
-    total_baseline = totals.baselineMinutes
-
-    def _ratio_proxy(m: BusinessMetrics) -> int:
-        if m.baselineMinutes == 0:
-            return _RATIO_INF
-        return m.effortMinutes * total_baseline
-
-    max_ratio = max((_ratio_proxy(m) for m in metrics), default=0)
+    max_ratio = max((ratio_rank(m.effortMinutes, m.baselineMinutes) for m in metrics), default=ratio_rank(0, 1))
     tertiary = sorted(assignment_map.items())
     return (totals.effortMinutes, max_ratio, tertiary)

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from contracts.models import Scenario
+from optimizer.contract import Scenario
 
 # Hard limits (from the frozen contract)
 MAX_MVP_BUSINESSES: int = 3

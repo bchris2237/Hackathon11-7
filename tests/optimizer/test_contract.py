@@ -24,7 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts.models import (
+from tests.optimizer import _fixtures
+from optimizer.contract import (
     Assignment,
     Business,
     Deliverable,
@@ -45,7 +46,8 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def _load(name: str) -> dict:
-    return json.loads((FIXTURES_DIR / name).read_text())
+    return _fixtures.load(name)
+
 
 
 def _scenario(name: str) -> Scenario:
@@ -180,26 +182,41 @@ class TestDisruption:
         result = solve(_scenario("disruption.json"))
         assert result.status == ResultStatus.NO_EXCHANGE
 
-    def test_assignments_empty(self):
-        result = solve(_scenario("disruption.json"))
-        assert result.assignments == []
+    def test_assignments_are_the_self_production_plan(self):
+        """No exchange: each business does its own deliverable. Independent of solver output: owner and service come from the fixture."""
+        scenario = _scenario("disruption.json")
+        result = solve(scenario)
+        owner_of = {d.id: d.ownerId for d in scenario.deliverables}
+        assert sorted(a.deliverableId for a in result.assignments) == sorted(owner_of)
+        assert all(a.providerId == owner_of[a.deliverableId] for a in result.assignments)
 
-    def test_metrics_null(self):
+    def test_metrics_show_nobody_saves_anything(self):
         result = solve(_scenario("disruption.json"))
-        assert result.businessMetrics is None
+        assert result.businessMetrics is not None
+        assert {m.businessId: m.baselineMinutes for m in result.businessMetrics} == {"devco": 480, "designco": 480, "copyco": 480}  # each owner's OWN need; the disruption only changes what designco would charge to design for others
+        for m in result.businessMetrics:
+            assert m.productionMinutes == m.baselineMinutes and m.coordinationMinutes == 0 and m.netSavingsMinutes == 0
 
-    def test_totals_null(self):
+    def test_totals_show_zero_savings(self):
         result = solve(_scenario("disruption.json"))
-        assert result.totals is None
+        t = result.totals
+        assert t is not None
+        assert (t.baselineMinutes, t.productionMinutes, t.effortMinutes) == (1440, 1440, 1440)
+        assert (t.grossSavingsMinutes, t.netSavingsMinutes, t.coordinationMinutes) == (0, 0, 0)
 
     def test_reason_code(self):
         result = solve(_scenario("disruption.json"))
         assert any(r.code == "NO_BENEFICIAL_EXCHANGE" for r in result.reasons)
 
-    def test_certificate_null(self):
+    def test_certificate_present_and_valid(self):
+        """The frozen schema gives every non-infeasible result a certificate. It certifies the plan is valid, not that it benefits anyone."""
         result = solve(_scenario("disruption.json"))
-        assert result.certificate is None
-
+        assert result.certificate is not None
+        assert result.certificate.verification == "valid"
+        names = {c.name for c in result.certificate.checks}
+        assert "capacity_respected" in names and "no_worse_off" in names
+        assert "at_least_one_cross_business_assignment" not in names, "a no_exchange plan must not claim an exchange"
+        assert "total_net_savings_positive" not in names
     def test_no_exchange_is_not_infeasible(self):
         """no_exchange is a distinct valid outcome — the disruption scenario is NOT infeasible."""
         result = solve(_scenario("disruption.json"))

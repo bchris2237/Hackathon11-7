@@ -56,7 +56,7 @@ import json
 from copy import deepcopy
 from dataclasses import dataclass, field
 
-from contracts.models import (
+from optimizer.contract import (
     CapacityChange,
     Change,
     CoordinationChange,

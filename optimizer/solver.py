@@ -15,7 +15,7 @@ Public surface (A1 + A2 + A3 + A4):
   compute_metrics(scenario, assignment_map)  → (list[BusinessMetrics], Totals)  [A4]
   rank_allocation(candidates)                → list[ScoredCandidate]              [A4]
 """
-from contracts.models import Result, Scenario
+from optimizer.contract import Result, Scenario
 
 from optimizer.engine import enumerate_assignments as _enumerate_assignments
 from optimizer.engine import optimize as _optimize
@@ -325,7 +325,7 @@ def generate_certificate(scenario, assignments) -> "Certificate":
     consistency.  Does NOT prove identity, quality equality, legal
     enforceability, profit, or solver optimality.
     """
-    from contracts.models import Certificate  # noqa: F401 — for type annotation
+    from optimizer.contract import Certificate  # noqa: F401 — for type annotation
     return _generate_certificate(scenario, assignments)
 
 

@@ -697,6 +697,8 @@ def sandbox(tmp_path):
 
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    # The real repo now contains optimizer/api.py. This sandbox models a checkout WITHOUT an optimizer; tests that need one write their own.
+    (repo / "optimizer" / "api.py").unlink(missing_ok=True)
     subprocess.run(git + ["add", "-A"], cwd=repo, check=True)
     subprocess.run(git + ["commit", "-q", "-m", "x"], cwd=repo, check=True)
 

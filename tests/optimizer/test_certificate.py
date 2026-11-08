@@ -23,7 +23,8 @@ from pathlib import Path
 
 import pytest
 
-from contracts.models import Assignment, Certificate, Scenario
+from tests.optimizer import _fixtures
+from optimizer.contract import Assignment, Certificate, Scenario
 from optimizer.certificate import (
     VerificationResult,
     _allocation_digest,
@@ -42,7 +43,8 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def _load(name: str) -> dict:
-    return json.loads((FIXTURES_DIR / name).read_text())
+    return _fixtures.load(name)
+
 
 
 def _scenario(name: str) -> Scenario:

@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from contracts.models import (
+from optimizer.contract import (
     Assignment,
     Scenario,
     ServiceName,
