@@ -97,9 +97,13 @@ describe("canonical loader", () => {
     for (const sent of extraction.request.descriptions) {
       const business = form.businesses.find((b) => b.id === sent.id);
       expect(business, sent.id).toBeDefined();
-      expect(business!.description).toBe(sent.text);
+      // The sample keeps the fixture's text, and adds one plain coordination sentence only where the fixture never mentions it.
+      expect(business!.description.startsWith(sent.text.trimEnd())).toBe(true);
+      expect(business!.description).toMatch(/coordinat/i);
       expect(business!.description.length).toBeGreaterThan(40);
     }
+    expect(form.businesses[0].description).toBe(extraction.request.descriptions[0].text);
+    expect(form.businesses[2].description).toBe(`${extraction.request.descriptions[2].text.trimEnd()} Coordinating with another business costs us nothing extra.`);
     expect(form.businesses.map((b) => b.id)).toEqual(extraction.request.descriptions.map((d) => d.id));
   });
 
