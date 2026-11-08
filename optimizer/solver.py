@@ -32,6 +32,11 @@ from optimizer.metrics import (
     compute_metrics as _compute_metrics,
     rank_allocation as _rank_allocation,
 )
+from optimizer.certificate import (
+    VerificationResult,
+    generate_certificate as _generate_certificate,
+    verify_certificate as _verify_certificate,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -176,4 +181,40 @@ __all__ = [
     "compute_metrics",
     "rank_allocation",
     "ScoredCandidate",
+    "generate_certificate",
+    "verify_certificate",
+    "VerificationResult",
 ]
+
+
+# ---------------------------------------------------------------------------
+# A5 — generate_certificate and verify_certificate
+# ---------------------------------------------------------------------------
+
+def generate_certificate(scenario, assignments) -> "Certificate":
+    """
+    Generate a Certificate for a scenario + assignment list.
+
+    Runs all constraint checks independently before generating.
+    Raises ValueError if any check fails.
+
+    Proves arithmetic correctness under supplied estimates and SHA-256 digest
+    consistency.  Does NOT prove identity, quality equality, legal
+    enforceability, profit, or solver optimality.
+    """
+    from contracts.models import Certificate  # noqa: F401 — for type annotation
+    return _generate_certificate(scenario, assignments)
+
+
+def verify_certificate(scenario, assignments, certificate) -> VerificationResult:
+    """
+    Independently verify a certificate against a scenario and assignment list.
+
+    Reruns all checks from scratch and recomputes both digests.
+    Returns VerificationResult with valid=True only when all checks pass
+    AND both digests match.
+
+    Tampered providers, wrong minutes, altered scenario or modified totals
+    each produce a mismatch or check failure.
+    """
+    return _verify_certificate(scenario, assignments, certificate)
