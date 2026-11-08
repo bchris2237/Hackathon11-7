@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  TradeMind backend: one Python 3.12 Lambda behind an API Gateway HTTP API. Live mode only.
+  Nothing in this stack is created until a human runs scripts/deploy.ps1 (see docs/deployment.md).
+
+# ---------------------------------------------------------------------------------------------------
+# Design rules (each one is checked by tests/backend/test_deployment.py):
+#   * CORS is decided in ONE place, the Lambda (backend/app.py, ALLOWED_ORIGIN). The HTTP API has no
+#     CorsConfiguration, so API Gateway never answers a preflight on its own with different rules.
+#   * The execution role can invoke ONLY the Bedrock resources the operator names. No wildcards.
+#   * Log retention, reserved concurrency and request throttles are part of the core stack.
+#   * No credentials, keys or account ids appear here. AWS_REGION is set by Lambda itself (reserved name),
+#     so Bedrock is called in the region this stack is deployed to.
+# ---------------------------------------------------------------------------------------------------
+
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Description: >-
+      Exact browser origin(s) allowed by CORS, comma separated, https only. Use the Amplify app URL,
+      for example https://main.d1234567890abc.amplifyapp.com. No wildcard is accepted.
+    AllowedPattern: '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(,https://[A-Za-z0-9.-]+(:[0-9]{1,5})?)*$'
+    ConstraintDescription: Comma-separated exact https origins, no paths and no wildcards.
+
+  BedrockModelId:
+    Type: String
+    Description: >-
+      Model id or inference profile id YOUR account has access to in this region. Never guessed by this project.
+      Look it up in the Bedrock console (Model access) and the Inference profiles page.
+    AllowedPattern: '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,200}$'
+
+  BedrockResourceArns:
+    Type: String
+    Description: >-
+      Comma-separated ARNs the function may invoke (bedrock:InvokeModel only). For a plain foundation model:
+      its foundation-model ARN. For an inference profile: the inference-profile ARN AND the foundation-model ARN in
+      EVERY region the profile routes to (AWS documents this requirement). Wildcards are rejected.
+    AllowedPattern: '^arn:aws[a-z-]*:bedrock:[a-z0-9-]*:[0-9]*:(foundation-model|inference-profile|application-inference-profile)/[A-Za-z0-9._:/-]+(,arn:aws[a-z-]*:bedrock:[a-z0-9-]*:[0-9]*:(foundation-model|inference-profile|application-inference-profile)/[A-Za-z0-9._:/-]+)*$'
+    ConstraintDescription: Exact Bedrock ARNs separated by commas. No '*' and no spaces.
+
+  CommitSha:
+    Type: String
+    Default: unknown
+    Description: Git commit being deployed. Returned by GET /health so the deployed version can be checked.
+    AllowedPattern: '^[A-Za-z0-9._-]{1,64}$'
+
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90]
+    Description: CloudWatch Logs retention for the function. Logs hold request metadata only, never bodies.
+
+  ReservedConcurrency:
+    Type: String
+    Default: "5"
+    AllowedPattern: '^(-1|[1-9][0-9]?|100)$'
+    ConstraintDescription: A number from 1 to 100, or -1 to skip (see docs/deployment.md before using -1).
+    Description: >-
+      Reserved concurrent executions: a hard ceiling on parallel model calls (and therefore spend). A NEW account can have
+      an account limit too low to reserve any; then deployment fails with a clear message and -1 is the explicit, documented
+      opt-out (it removes this ceiling).
+
+  ThrottleRatePerSecond:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 50
+    Description: Steady requests per second allowed by the HTTP API (all routes).
+
+  ThrottleBurst:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 100
+    Description: Burst requests allowed by the HTTP API.
+
+  MaxInFlight:
+    Type: Number
+    Default: 4
+    MinValue: 1
+    MaxValue: 16
+    Description: Most model/solver calls one Lambda container runs at once; more get 429 (backend/config.py MAX_IN_FLIGHT).
+
+  MemorySize:
+    Type: Number
+    Default: 512
+    AllowedValues: [256, 512, 1024]
+
+Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, "-1"]]
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [x86_64]
+
+Resources:
+  # ---------------------------------------------------------------------------------------------- logs
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ----------------------------------------------------------------------------------------- permissions
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: TradeMind Lambda execution role. Logs to its own log group and bedrock:InvokeModel on the named ARNs only.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: logs-to-own-group
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${FunctionLogGroup.Arn}:*"
+        - PolicyName: bedrock-invoke-named-resources
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Split [",", !Ref BedrockResourceArns]
+
+  # ------------------------------------------------------------------------------------------- function
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: TradeMind API (extract, confirm, optimize, simulate, explain, health)
+      # scripts/deploy.ps1 stages backend/, contracts/ and optimizer/ plus infra/requirements-lambda.txt here.
+      CodeUri: ../.aws-sam/stage/function/
+      Handler: backend.app.lambda_handler
+      MemorySize: !Ref MemorySize
+      # API Gateway HTTP APIs cut integrations off at 30 s (not adjustable). The adapter budget is 25 s.
+      Timeout: 29
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref "AWS::NoValue"]
+      Role: !GetAtt ExecutionRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref FunctionLogGroup
+      Environment:
+        Variables:
+          APP_MODE: live
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          COMMIT_SHA: !Ref CommitSha
+          MAX_IN_FLIGHT: !Ref MaxInFlight
+          ADAPTER_TIMEOUT_SECONDS: "25"
+          BEDROCK_MAX_OUTPUT_TOKENS: "1500"
+          BEDROCK_READ_TIMEOUT_SECONDS: "10"
+          BEDROCK_STRUCTURED_OUTPUT: "off"
+      Events:
+        AnyRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+            PayloadFormatVersion: "2.0"
+            TimeoutInMillis: 29000
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+            PayloadFormatVersion: "2.0"
+            TimeoutInMillis: 29000
+
+  # ---------------------------------------------------------------------------------------------- API
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Description: TradeMind public API (fictional demo data only; no authentication)
+      # Deliberately NO CorsConfiguration: the Lambda owns CORS so preflight and real responses cannot disagree.
+      DefaultRouteSettings:
+        ThrottlingRateLimit: !Ref ThrottleRatePerSecond
+        ThrottlingBurstLimit: !Ref ThrottleBurst
+
+Outputs:
+  ApiUrl:
+    Description: Public API base URL. Put this (and only this) in Amplify as VITE_API_BASE_URL.
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  HealthUrl:
+    Description: Open this after deploying; its "commit" must equal the commit you deployed.
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/health"
+  FunctionName:
+    Value: !Ref ApiFunction
+  LogGroupName:
+    Value: !Ref FunctionLogGroup
+  BedrockRegion:
+    Description: Bedrock is called in the stack's own region (AWS_REGION is set by Lambda).
+    Value: !Ref "AWS::Region"
