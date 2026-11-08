@@ -37,6 +37,12 @@ from optimizer.certificate import (
     generate_certificate as _generate_certificate,
     verify_certificate as _verify_certificate,
 )
+from optimizer.simulation import (
+    ResultDiff,
+    SimulationError,
+    apply_changes as _apply_changes,
+    diff_results as _diff_results,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +190,41 @@ __all__ = [
     "generate_certificate",
     "verify_certificate",
     "VerificationResult",
+    "apply_changes",
+    "diff_results",
+    "SimulationError",
+    "ResultDiff",
 ]
+
+
+# ---------------------------------------------------------------------------
+# A6 — apply_changes and diff_results
+# ---------------------------------------------------------------------------
+
+def apply_changes(scenario, changes) -> Scenario:
+    """
+    Apply a validated list of Change objects to a deep copy of the scenario.
+
+    The original scenario is NEVER mutated.
+    Raises SimulationError (subclass of ValueError) atomically if any
+    validation fails — duplicate targets, unknown IDs, or bad values.
+
+    Allowed paths: capacity, coordination, estimate (service minutes).
+    No language parsing — caller must supply explicit Change objects.
+    After applying, the patched scenario is re-validated through Pydantic.
+    """
+    return _apply_changes(scenario, changes)
+
+
+def diff_results(before: Result, after: Result) -> ResultDiff:
+    """
+    Compare two Results and return a ResultDiff with per-business deltas
+    and aggregate totals deltas.
+
+    Does NOT mutate either Result and does NOT change the Result wire schema.
+    Used by the backend /simulate handler and the UI to display before/after.
+    """
+    return _diff_results(before, after)
 
 
 # ---------------------------------------------------------------------------
