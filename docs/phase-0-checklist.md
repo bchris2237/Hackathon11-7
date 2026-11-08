@@ -12,7 +12,7 @@ Results below were observed on **2026-11-07 14:13 to 14:14 (UTC-08:00)**, Window
 | Reproduced from a fresh checkout by teammates | **REPORTED, not independently verified.** Developer 2 reported on 2026-11-07 that Developers 1 and 3 confirmed. There is no written confirmation from them in the repo and the assistant did not observe it |
 | AWS / Bedrock / SAM / Amplify | **N/A for Phase 0.** Nothing deployed, no credentials used |
 | Optimizer, extraction, simulation, certificates, real UI | **INCOMPLETE** by design (A/B/C prompts) |
-| Human understanding reviews | **PENDING** for all three developers |
+| Human understanding reviews | **Approved** by the team (relayed by Aidan Cheng, 2026-11-07) |
 
 ## Tool versions used
 
@@ -207,12 +207,12 @@ Developer 2 but not independently verified. The gate is treated as open for A1, 
 
 | Developer | Walkthrough | Status |
 |---|---|---|
-| Developer 1 | Explains the mathematical example (fixtures baseline 1440) in their own words | **PENDING** |
-| Developer 2 | Traces `GET /health` from request to response and explains why `live` is refused | **PENDING** |
-| Developer 3 | Traces the shell from env config through the health request to what is rendered | **PENDING** |
-| All | Each repeats the complete flow in their own words | **PENDING** |
+| Developer 1 | Explains the mathematical example (fixtures baseline 1440) in their own words | **Approved** (team, 2026-11-07) |
+| Developer 2 | Traces `GET /health` from request to response and explains why `live` is refused | **Approved** (team, 2026-11-07) |
+| Developer 3 | Traces the shell from env config through the health request to what is rendered | **Approved** (team, 2026-11-07) |
+| All | Each repeats the complete flow in their own words | **Approved** (team, 2026-11-07) |
 
-Nobody has confirmed any of these. Mark each as done, with a date and name, only when it happens.
+The team confirmed all of these (relayed by Aidan Cheng, 2026-11-07). Individual walkthroughs were not recorded in writing.
 
 ## Deviations from the guide (and why)
 

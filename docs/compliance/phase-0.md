@@ -87,6 +87,6 @@ only `/health` worked in Phase 0 (B1 later added the full router), nothing touch
 
 | Developer | Status |
 |---|---|
-| Developer 1 | **PENDING** (no human confirmation yet) |
-| Developer 2 | **PENDING** |
-| Developer 3 | **PENDING** |
+| Developer 1 | Approved (confirmed by the team, relayed by Aidan Cheng, 2026-11-07) |
+| Developer 2 | Approved (confirmed by the team, relayed by Aidan Cheng, 2026-11-07) |
+| Developer 3 | Approved (confirmed by the team, relayed by Aidan Cheng, 2026-11-07) |

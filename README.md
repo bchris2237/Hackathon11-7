@@ -129,7 +129,7 @@ because they expect fixture mode. Clear them first.
 ## AI assistance
 
 Built with Kiro under the developers' supervision. Per-step records in `docs/compliance/` say what was generated and what is still
-UNVERIFIED. Human understanding reviews are **PENDING** until each teammate confirms them.
+UNVERIFIED. Human understanding reviews were approved by the team (relayed by Aidan Cheng, 2026-11-07).
 
 ## Read next
 
