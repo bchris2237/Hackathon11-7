@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { readConfig } from "./config";
@@ -88,6 +89,32 @@ describe("App live mode", () => {
     expect(screen.getByRole("link", { name: /skip to workspace/i })).toHaveAttribute("href", "#workspace");
     expect(screen.getByRole("heading", { name: "Businesses and scenario" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Results and backend" })).toBeInTheDocument();
+  });
+});
+
+describe("mode mismatch", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("tells the user what to do and one click on the button resolves it", async () => {
+    vi.stubEnv("VITE_DATA_MODE", "live");
+    mockFetch(async () => Response.json({ status: "ok", schemaVersion: "1", commit: "abc", mode: "fixture" }));
+    render(<App />);
+    const alert = await screen.findByTestId("mode-mismatch");
+    expect(alert).toHaveTextContent("this app is in live mode but the backend reports fixture mode");
+    expect(alert).toHaveTextContent("APP_MODE=live");
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent(/LIVE MODE/);
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Switch the app to fixture mode" }));
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent(/FIXTURE MODE/);
+    await waitFor(() => expect(screen.queryByTestId("mode-mismatch")).not.toBeInTheDocument());
+    expect(await screen.findByText(/Backend OK/)).toBeInTheDocument();
+  });
+
+  it("is not shown when the app and the backend agree", async () => {
+    mockFetch(async () => Response.json({ status: "ok", schemaVersion: "1", commit: "abc", mode: "fixture" }));
+    render(<App />);
+    await screen.findByText(/Backend OK/);
+    expect(screen.queryByTestId("mode-mismatch")).not.toBeInTheDocument();
   });
 });
 

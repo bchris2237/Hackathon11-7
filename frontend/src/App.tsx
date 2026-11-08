@@ -113,10 +113,23 @@ export default function App() {
           </p>
         )}
         {modeMismatch && state.kind === "ok" && (
-          <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-900">
-            Mode mismatch: this app is in {dataMode} mode but the backend reports {state.health.mode} mode.
-            Fix VITE_DATA_MODE or APP_MODE before trusting any result.
-          </p>
+          <div role="alert" data-testid="mode-mismatch" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-900">
+            <p>
+              Mode mismatch: this app is in {dataMode} mode but the backend reports {state.health.mode} mode. Results from
+              this backend are refused until the two agree.
+            </p>
+            <p className="mt-1 text-sm">
+              Switch the app to {state.health.mode} mode (nothing you typed is lost), or restart the backend with{" "}
+              <code>APP_MODE={dataMode}</code>. The app's starting mode comes from <code>VITE_DATA_MODE</code>.
+            </p>
+            <button
+              type="button"
+              onClick={switchMode}
+              className="mt-2 min-h-8 rounded border border-red-700 bg-white px-3 py-1 text-sm font-medium text-red-900"
+            >
+              Switch the app to {state.health.mode} mode
+            </button>
+          </div>
         )}
 
         <div className="grid gap-6 lg:grid-cols-2">
