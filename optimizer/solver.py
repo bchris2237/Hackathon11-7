@@ -43,6 +43,13 @@ from optimizer.simulation import (
     apply_changes as _apply_changes,
     diff_results as _diff_results,
 )
+from optimizer.explain import (
+    BottleneckReport,
+    SensitivityReport,
+    TestedCandidate,
+    analyze_bottlenecks as _analyze_bottlenecks,
+    sensitivity_report as _sensitivity_report,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +201,38 @@ __all__ = [
     "diff_results",
     "SimulationError",
     "ResultDiff",
+    "analyze_bottlenecks",
+    "sensitivity_report",
+    "BottleneckReport",
+    "SensitivityReport",
+    "TestedCandidate",
 ]
+
+
+# ---------------------------------------------------------------------------
+# A8 — analyze_bottlenecks and sensitivity_report
+# ---------------------------------------------------------------------------
+
+def analyze_bottlenecks(scenario: Scenario) -> BottleneckReport:
+    """
+    Report observed binding constraints for a scenario.
+
+    Runs the solver once, then inspects self-assignment feasibility of each
+    business.  Reports every observed binding constraint and any missing
+    baseline estimates.  Does NOT claim a single root cause or minimal repair.
+    """
+    return _analyze_bottlenecks(scenario)
+
+
+def sensitivity_report(scenario, candidates) -> SensitivityReport:
+    """
+    Test a finite, explicit list of (label, changes) candidates by actually
+    rerunning the solver on each.
+
+    repaired=True only when a rerun produced 'collaboration'.
+    Makes NO claim about untested changes or global minimum repairs.
+    """
+    return _sensitivity_report(scenario, candidates)
 
 
 # ---------------------------------------------------------------------------
