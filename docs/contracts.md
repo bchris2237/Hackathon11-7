@@ -52,7 +52,7 @@ These cannot be expressed in JSON Schema. Phase 0 only checks them on the fixtur
 (`test_fixture_semantic_rules`). The B-track and A-track validators must enforce them at runtime:
 
 - business ids unique; deliverable ids unique: **enforced since B3** (`validate_scenario` in `backend/confirmation.py`, used by `/confirm`, `/optimize` and, since B4, `/explain`)
-- every `ownerId` references an existing business: **enforced since B3**. Every `Change.businessId` references one: still open (simulate prompt)
+- every `ownerId` references an existing business: **enforced since B3**. Every `Change.businessId` references one: **enforced since B5** (`apply_changes` in `backend/simulation.py`, 422 `UNKNOWN_TARGET`)
 - at most one estimate per service per business: **enforced since B3**
 - each owner has an estimate for its own required service, otherwise **422 `MISSING_BASELINE`**: **enforced since B3**
   (fields look like `scenario.businesses[2].estimates.coding`)
