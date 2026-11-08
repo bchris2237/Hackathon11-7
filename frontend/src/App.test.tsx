@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { readConfig } from "./config";
 
+// /health is retried twice on transient failures (250 ms + 500 ms) before the error is shown.
+const LONG = { timeout: 4000 };
+
 function mockFetch(impl: () => Promise<Response>) {
   vi.stubGlobal("fetch", vi.fn(impl));
 }
@@ -33,7 +36,7 @@ describe("App shell", () => {
       throw new TypeError("Failed to fetch");
     });
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Backend unavailable/);
+    expect(await screen.findByRole("alert", {}, LONG)).toHaveTextContent(/Backend unavailable/);
     expect(screen.queryByText(/Backend OK/)).not.toBeInTheDocument();
   });
 
@@ -46,13 +49,45 @@ describe("App shell", () => {
   it("reports a non-200 /health as unavailable", async () => {
     mockFetch(async () => new Response("nope", { status: 503 }));
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/HTTP 503/);
+    expect(await screen.findByRole("alert", {}, LONG)).toHaveTextContent(/HTTP 503/);
   });
 
   it("lists the features that are not built yet", () => {
     mockFetch(() => new Promise(() => {}));
     render(<App />);
     expect(screen.getByText("Not built yet")).toBeInTheDocument();
+  });
+});
+
+describe("App live mode", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("shows the live banner, no SIMULATED label, and a live failure without substitution", async () => {
+    vi.stubEnv("VITE_DATA_MODE", "live");
+    mockFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    render(<App />);
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent(/LIVE MODE/);
+    expect(screen.getByTestId("mode-banner")).not.toHaveTextContent(/SIMULATED/);
+    expect(await screen.findByRole("alert", {}, LONG)).toHaveTextContent(/Backend unavailable/);
+    expect(screen.queryByText(/Backend OK/)).not.toBeInTheDocument();
+  });
+
+  it("flags a backend whose mode differs from the configured mode", async () => {
+    vi.stubEnv("VITE_DATA_MODE", "live");
+    mockFetch(async () => Response.json({ status: "ok", schemaVersion: "1", commit: "abc", mode: "fixture" }));
+    render(<App />);
+    expect(await screen.findByText(/Mode mismatch/)).toBeInTheDocument();
+  });
+
+  it("fixture banner says SIMULATED and a skip link plus both panels exist", () => {
+    mockFetch(() => new Promise(() => {}));
+    render(<App />);
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent(/SIMULATED/);
+    expect(screen.getByRole("link", { name: /skip to workspace/i })).toHaveAttribute("href", "#workspace");
+    expect(screen.getByRole("heading", { name: "Businesses and scenario" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Results and backend" })).toBeInTheDocument();
   });
 });
 
