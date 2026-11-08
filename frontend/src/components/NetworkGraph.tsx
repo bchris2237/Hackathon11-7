@@ -1,7 +1,7 @@
-import { useId } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   Background,
-  BaseEdge,
+  Controls,
   EdgeLabelRenderer,
   MarkerType,
   ReactFlow,
@@ -13,6 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { Result, Scenario } from "../../../contracts/models";
 import { formatDuration } from "../state/scenario";
+import { checkCertificate } from "./Certificate";
 
 /** "180 min (3 h)" or "10 min": always exact minutes, hours only when exact. */
 export function describeMinutes(minutes: number): string {
@@ -29,6 +30,10 @@ export interface Line {
   self: boolean;
 }
 
+/** Length of the fade for a changed arrow. The timer that clears it adds a little slack. */
+export const ENTER_MS = 450;
+const EMPTY: ReadonlySet<string> = new Set();
+
 /** Where the ellipse of businesses is centred, in node-centre coordinates. */
 const CENTER = { x: 220, y: 150 };
 const NODE_WIDTH = 140;
@@ -39,6 +44,8 @@ export interface ExchangeEdgeData extends Record<string, unknown> {
   offset: number;
   /** Middle of the whole picture; edge labels sit on the outer side of their arrow. */
   center: { x: number; y: number };
+  /** True only while this arrow is fading in because a verified result changed it. */
+  entering?: boolean;
 }
 
 export interface GraphModel {
@@ -86,6 +93,10 @@ export function buildGraph(scenario: Scenario, result: Result): GraphModel {
   if (problems.length > 0) return { nodes: [], edges: [], lines: [], problems };
 
   const count = scenario.businesses.length;
+  // Three businesses (the MVP) use the base ellipse. Up to five (optional extension) spread wider so boxes and labels keep apart.
+  const extra = Math.max(0, count - 3);
+  const radiusX = 150 + 30 * extra;
+  const radiusY = 105 + 25 * extra;
   const nodes: Node[] = scenario.businesses.map((b, i) => {
     const angle = (2 * Math.PI * i) / count - Math.PI / 2;
     const own = lines.filter((l) => l.self && l.ownerId === b.id);
@@ -93,8 +104,8 @@ export function buildGraph(scenario: Scenario, result: Result): GraphModel {
     return {
       id: b.id,
       position: {
-        x: CENTER.x + 150 * Math.cos(angle) - NODE_WIDTH / 2,
-        y: CENTER.y + 105 * Math.sin(angle) - NODE_HALF_HEIGHT,
+        x: CENTER.x + radiusX * Math.cos(angle) - NODE_WIDTH / 2,
+        y: CENTER.y + radiusY * Math.sin(angle) - NODE_HALF_HEIGHT,
       },
       data: { label: [`${b.name} (${b.id})`, ...selfText].join("\n") },
       style: { whiteSpace: "pre-line", fontSize: 12, textAlign: "center", width: NODE_WIDTH },
@@ -122,6 +133,70 @@ export function buildGraph(scenario: Scenario, result: Result): GraphModel {
   });
 
   return { nodes, edges, lines, problems };
+}
+
+/**
+ * Ids of the arrows in `after` that are new or different (other provider or other minutes)
+ * compared with `before`. Self-work is not an arrow. Arrows that disappear are not listed:
+ * they just vanish, nothing is animated for them. No `before` means nothing to compare, so none.
+ */
+export function changedExchangeEdges(scenario: Scenario, before: Result | null, after: Result): Set<string> {
+  const ids = new Set<string>();
+  if (!before) return ids;
+  for (const a of after.assignments) {
+    const deliverable = scenario.deliverables.find((d) => d.id === a.deliverableId);
+    if (!deliverable || deliverable.ownerId === a.providerId) continue;
+    const old = before.assignments.find((x) => x.deliverableId === a.deliverableId);
+    if (!old || old.providerId !== a.providerId || old.minutes !== a.minutes) ids.add(`edge-${a.deliverableId}`);
+  }
+  return ids;
+}
+
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
+
+/** True when the user asked the system for less motion. Follows changes while the page is open. */
+export function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(() => typeof window !== "undefined" && window.matchMedia?.(REDUCED_MOTION)?.matches === true);
+  useEffect(() => {
+    const query = typeof window !== "undefined" ? window.matchMedia?.(REDUCED_MOTION) : undefined;
+    if (!query) return;
+    const update = () => setReduced(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return reduced;
+}
+
+/**
+ * Which arrows are fading in right now. Only a verified result that differs from the previous
+ * one starts a fade, only the arrows that differ take part, and nothing animates under reduced
+ * motion. A newer result replaces the set at once; the timer is cleared on every change and on
+ * unmount. `previousResult` seeds the comparison for a graph that is first drawn as a variant
+ * of another result (the what-if beside the original).
+ */
+export function useEnteringEdges(
+  scenario: Scenario,
+  result: Result,
+  previousResult: Result | null | undefined,
+  verified: boolean,
+  reduced: boolean,
+): ReadonlySet<string> {
+  const compute = (before: Result | null) => (verified && !reduced ? changedExchangeEdges(scenario, before, result) : EMPTY);
+  const [state, setState] = useState<{ result: Result; entering: ReadonlySet<string> }>(() => ({
+    result,
+    entering: compute(previousResult ?? null),
+  }));
+  if (state.result !== result) setState({ result, entering: compute(state.result) }); // derived from the previous result
+  const entering = state.entering;
+  useEffect(() => {
+    if (entering.size === 0) return;
+    const timer = setTimeout(() => {
+      setState((s) => (s.entering === entering ? { ...s, entering: EMPTY } : s));
+    }, ENTER_MS + 150);
+    return () => clearTimeout(timer);
+  }, [entering]);
+  return reduced ? EMPTY : entering;
 }
 
 /** Point where the line from a box's centre towards `toward` leaves the box. */
@@ -165,10 +240,10 @@ function ExchangeEdge({ source, target, markerEnd, label, data }: EdgeProps<Edge
   const label_ = { x: mid.x + (outX / outLength) * 30, y: mid.y + (outY / outLength) * 30 };
   return (
     <>
-      <BaseEdge path={path} markerEnd={markerEnd} style={{ stroke: "#334155", strokeWidth: 1.5 }} />
+      <path d={path} fill="none" markerEnd={markerEnd} stroke="#334155" strokeWidth={1.5} className="react-flow__edge-path" />
       <EdgeLabelRenderer>
         <div
-          className="nodrag nopan pointer-events-none absolute max-w-[7.5rem] rounded bg-white px-1 text-center text-[11px] leading-tight text-slate-800"
+          className={`nodrag nopan pointer-events-none absolute max-w-[7.5rem] rounded bg-white px-1 text-center text-[11px] leading-tight text-slate-800${data?.entering ? " tm-label-enter" : ""}`}
           style={{ transform: `translate(-50%, -50%) translate(${label_.x}px, ${label_.y}px)` }}
         >
           {label}
@@ -183,10 +258,26 @@ const edgeTypes = { exchange: ExchangeEdge };
 interface Props {
   scenario: Scenario;
   result: Result;
+  /** Result this one is a variant of (the original, for a what-if). Arrows that differ fade in on first draw. */
+  previousResult?: Result | null;
 }
 
-export default function NetworkGraph({ scenario, result }: Props) {
-  const graph = buildGraph(scenario, result);
+export default function NetworkGraph({ scenario, result, previousResult }: Props) {
+  const graph = useMemo(() => buildGraph(scenario, result), [scenario, result]);
+  const reduced = usePrefersReducedMotion();
+  // "Verified" here means: every id in the result exists in the confirmed scenario AND the server
+  // sent a well-formed certificate. It is a shape check; it does not recompute anything.
+  const verified = graph.problems.length === 0 && result.certificate !== null && checkCertificate(result.certificate).ok;
+  const entering = useEnteringEdges(scenario, result, previousResult, verified, reduced);
+  // Arrow labels sit just outside the boxes, so a bigger set of boxes needs more room around the fit.
+  const fitPadding = graph.nodes.length > 3 ? 0.24 : 0.12;
+  const edges = useMemo(
+    () =>
+      graph.edges.map((e) =>
+        entering.has(e.id) ? { ...e, className: "tm-edge-enter", data: { ...(e.data as ExchangeEdgeData), entering: true } } : e,
+      ),
+    [graph.edges, entering],
+  );
   // React Flow derives DOM ids (descriptions, patterns, live region) from this; two graphs may be on screen.
   const flowId = `flow${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const nameOf = (id: string) => scenario.businesses.find((b) => b.id === id)?.name ?? id;
@@ -216,22 +307,30 @@ export default function NetworkGraph({ scenario, result }: Props) {
         <ReactFlow
           id={flowId}
           nodes={graph.nodes}
-          edges={graph.edges}
+          edges={edges}
           edgeTypes={edgeTypes}
           fitView
-          fitViewOptions={{ padding: 0.12 }}
+          fitViewOptions={{ padding: fitPadding }}
+          minZoom={0.5}
+          maxZoom={2.5}
           nodesDraggable={false}
           nodesConnectable={false}
           nodesFocusable={false}
           edgesFocusable={false}
           elementsSelectable={false}
-          panOnDrag={false}
+          panOnDrag
           zoomOnScroll={false}
+          zoomOnDoubleClick={false}
+          preventScrolling={false}
         >
           <Background />
+          {/* Real buttons, so zooming works from the keyboard. The view is kept when results change. */}
+          <Controls showInteractive={false} fitViewOptions={{ padding: fitPadding, duration: 0 }} />
         </ReactFlow>
       </div>
-      <p className="mt-1 text-xs text-slate-600">Arrows point from the business doing the work to the business that needs it.</p>
+      <p className="mt-1 text-xs text-slate-600">
+        Arrows point from the business doing the work to the business that needs it. Drag to move the picture, or use the zoom buttons.
+      </p>
       {exchanges.length === 0 && (
         <p className="mt-1 text-sm font-medium text-slate-800" data-testid="no-exchange-note">
           No exchange arrows: every business does its own work.

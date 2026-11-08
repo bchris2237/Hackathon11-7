@@ -540,7 +540,7 @@ function WhatIfResult({
       </ScrollRegion>
 
       {result.status !== "infeasible" && result.totals && result.businessMetrics && (
-        <NetworkGraph scenario={whatIf.scenario} result={result} />
+        <NetworkGraph scenario={whatIf.scenario} result={result} previousResult={baseResult} />
       )}
       <Savings scenario={whatIf.scenario} result={result} client={client} />
       <Certificate result={result} mode={client.dataMode} />
