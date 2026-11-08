@@ -45,6 +45,7 @@ from pydantic import BaseModel, ValidationError
 
 from backend.config import ConfigError, Settings, load_settings
 from backend.confirmation import confirm_scenario, validate_scenario
+from backend.optimization import broken_optimizer_adapter, load_optimizer_function, make_optimize_adapter
 from backend.errors import (
     ApiError,
     clean_request_id,
@@ -124,40 +125,62 @@ class Adapters:
     certificates: Callable[[CertificateRequest], Any] | None = None
 
 
-def default_adapters(settings: Settings | None = None, env: Mapping[str, str] | None = None) -> Adapters:
+def default_adapters(
+    settings: Settings | None = None,
+    env: Mapping[str, str] | None = None,
+    optimizer_loader: Callable[[], Any] | None = None,
+) -> Adapters:
     """Production wiring. Only REAL adapters are ever built here; fixtures live in tests.
 
     * /confirm is always wired (B3). It is deterministic validation with no AWS call and no mode.
-    * fixture mode (or no settings) -> nothing else. A real Bedrock reply is labelled 'live', so wiring it
-      into a fixture-mode app would be rejected by the mode check anyway;
-    * live mode -> /extract uses Bedrock if BEDROCK_MODEL_ID and AWS_REGION are set; otherwise it
-      answers 503 NOT_CONFIGURED. No model id or region is ever assumed.
-    Other routes stay unwired until their prompts (B4+): /optimize still answers 503 NOT_IMPLEMENTED.
+    * /optimize is wired (B4) in BOTH modes when `optimizer.api.optimize` can be imported. It is real,
+      deterministic computation, and its response `mode` echoes the app mode. If the package is absent the
+      route stays unwired (503 NOT_IMPLEMENTED); if it exists but is broken the route answers
+      503 OPTIMIZER_UNAVAILABLE. A fixture or canned optimizer is NEVER built here; tests inject their own.
+    * live mode only: /extract and /explain use Bedrock if BEDROCK_MODEL_ID and AWS_REGION are set; otherwise
+      they answer 503 NOT_CONFIGURED. No model id or region is ever assumed. (A real Bedrock reply is labelled
+      'live', so wiring it into a fixture-mode app would be rejected by the mode check anyway.)
+    /explain additionally needs the optimizer, because it recomputes the result before explaining it.
+    Other routes stay unwired until their prompts.
     """
     base = Adapters(confirm=confirm_scenario)
-    if settings is None or settings.mode != "live":
+    if settings is None:
+        return base
+
+    loaded = (optimizer_loader or load_optimizer_function)()
+    if callable(loaded):
+        base = dataclasses.replace(base, optimize=make_optimize_adapter(loaded, settings.mode))
+    elif isinstance(loaded, Exception):
+        broken = broken_optimizer_adapter(loaded)
+        base = dataclasses.replace(base, optimize=broken)
+    if settings.mode != "live":
         return base
 
     import os
 
     from backend.bedrock import BedrockClient, load_bedrock_settings
+    from backend.explanation import Explainer
     from backend.extraction import BedrockExtractor
 
     bedrock_settings = load_bedrock_settings(os.environ if env is None else env)
     if bedrock_settings is None:
 
-        def not_configured(_request: ExtractRequest) -> Any:
+        def not_configured(_request: Any) -> Any:
             raise ApiError(
                 503,
                 "NOT_CONFIGURED",
-                "Extraction is not configured: the server needs BEDROCK_MODEL_ID and AWS_REGION.",
+                "This feature is not configured: the server needs BEDROCK_MODEL_ID and AWS_REGION.",
             )
 
-        return dataclasses.replace(base, extract=not_configured)
+        explain = not_configured if callable(loaded) else (broken if isinstance(loaded, Exception) else None)
+        return dataclasses.replace(base, extract=not_configured, explain=explain)
 
     client = BedrockClient(bedrock_settings)
+    explain = Explainer(loaded, client) if callable(loaded) else (broken if isinstance(loaded, Exception) else None)
     return dataclasses.replace(
-        base, extract=BedrockExtractor(client, time_budget_seconds=settings.adapter_timeout_seconds)
+        base,
+        extract=BedrockExtractor(client, time_budget_seconds=settings.adapter_timeout_seconds),
+        explain=explain,
     )
 
 
@@ -352,9 +375,9 @@ class App:
     @staticmethod
     def _check_request_rules(model: BaseModel) -> None:
         """Contract rules JSON Schema states but the generated Pydantic models cannot express."""
-        if isinstance(model, (ConfirmRequest, OptimizeRequest)):
-            # Same checks for both routes, run before any adapter. Routes that take a scenario and are
-            # built later (simulate, explain, certificates, profiles) must call this too.
+        if isinstance(model, (ConfirmRequest, OptimizeRequest, ExplainRequest)):
+            # Same checks for every route that takes a scenario, run before any adapter. Routes built
+            # later (simulate, certificates, profiles) must call this too.
             validate_scenario(model.scenario)
         if isinstance(model, SimulateRequest) and model.text is not None:
             offending = [name for name, bad in (("changes", bool(model.changes)), ("apply", model.apply)) if bad]

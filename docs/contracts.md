@@ -51,7 +51,7 @@ certificate; any other status must have them); `Change` accepts only the three t
 These cannot be expressed in JSON Schema. Phase 0 only checks them on the fixtures
 (`test_fixture_semantic_rules`). The B-track and A-track validators must enforce them at runtime:
 
-- business ids unique; deliverable ids unique: **enforced since B3** (`validate_scenario` in `backend/confirmation.py`, used by `/confirm` and `/optimize`)
+- business ids unique; deliverable ids unique: **enforced since B3** (`validate_scenario` in `backend/confirmation.py`, used by `/confirm`, `/optimize` and, since B4, `/explain`)
 - every `ownerId` references an existing business: **enforced since B3**. Every `Change.businessId` references one: still open (simulate prompt)
 - at most one estimate per service per business: **enforced since B3**
 - each owner has an estimate for its own required service, otherwise **422 `MISSING_BASELINE`**: **enforced since B3**

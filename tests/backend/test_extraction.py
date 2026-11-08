@@ -771,7 +771,7 @@ def test_live_mode_without_bedrock_configuration_answers_503_not_configured():
 
 
 def test_live_mode_with_bedrock_configuration_builds_the_real_extractor():
-    adapters = default_adapters(LIVE, {"AWS_REGION": "us-west-2", "BEDROCK_MODEL_ID": "some.model-v1:0"})
+    adapters = default_adapters(LIVE, {"AWS_REGION": "us-west-2", "BEDROCK_MODEL_ID": "some.model-v1:0"}, optimizer_loader=lambda: None)
     assert isinstance(adapters.extract, BedrockExtractor)  # a real boto3 client is built; no call is made
     assert adapters.optimize is None and adapters.simulate is None, "other routes stay unwired until their prompts"
 

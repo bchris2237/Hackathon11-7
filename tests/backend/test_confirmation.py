@@ -415,7 +415,7 @@ def test_optimize_with_a_valid_scenario_reaches_the_adapter_after_validation(can
 
 
 def test_without_an_optimize_adapter_the_route_is_still_an_honest_503(canonical):
-    app = App(FIXTURE_SETTINGS, default_adapters(FIXTURE_SETTINGS))
+    app = App(FIXTURE_SETTINGS, default_adapters(FIXTURE_SETTINGS, {}, optimizer_loader=lambda: None))
     response = post(app, "/optimize", canonical)
     assert response.status == 503 and response.body["error"]["code"] == "NOT_IMPLEMENTED"
     app.close()
@@ -434,7 +434,7 @@ def test_validate_scenario_can_be_called_directly_and_raises_api_errors(canonica
 # ================================================================== wiring and modes
 def test_default_wiring_confirms_in_both_modes_and_leaves_other_routes_unwired(canonical):
     for settings in (FIXTURE_SETTINGS, LIVE_SETTINGS):
-        adapters = default_adapters(settings, {})
+        adapters = default_adapters(settings, {}, optimizer_loader=lambda: None)
         assert adapters.confirm is confirm_scenario
         assert adapters.optimize is None and adapters.simulate is None and adapters.explain is None
         app = App(settings, adapters)
@@ -451,7 +451,7 @@ def test_confirm_works_through_a_real_http_server_and_an_api_gateway_event(canon
 
     from backend.local import make_handler
 
-    app = App(FIXTURE_SETTINGS, default_adapters(FIXTURE_SETTINGS))
+    app = App(FIXTURE_SETTINGS, default_adapters(FIXTURE_SETTINGS, {}, optimizer_loader=lambda: None))
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
     httpd.daemon_threads = True
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)

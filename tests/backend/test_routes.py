@@ -656,11 +656,12 @@ def test_lambda_handler_builds_the_production_app_from_the_environment(monkeypat
     import backend.app as module
 
     monkeypatch.setattr(module, "_APP", None)
+    monkeypatch.setattr(module, "load_optimizer_function", lambda: None)  # independent of whether optimizer.api is merged
     monkeypatch.setenv("APP_MODE", "live")
     monkeypatch.setenv("COMMIT_SHA", "deadbeef")
     health = lambda_handler(event(), None)
     assert json.loads(health["body"])["mode"] == "live" and json.loads(health["body"])["commit"] == "deadbeef"
-    # Production wiring has no adapters yet, so live routes are honest 503s.
+    # With no optimizer package, /optimize is an honest 503.
     optimize = lambda_handler(event("POST", "/optimize", "{}"), None)
     assert optimize["statusCode"] == 503 and json.loads(optimize["body"])["error"]["code"] == "NOT_IMPLEMENTED"
     monkeypatch.setattr(module, "_APP", None)
