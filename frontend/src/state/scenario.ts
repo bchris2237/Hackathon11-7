@@ -293,6 +293,44 @@ export function draftToForm(draft: Draft, descriptions: Record<string, string>):
   return { businesses };
 }
 
+/**
+ * Applies an extraction draft on top of what the user already entered, instead of replacing it.
+ * - A value the draft states wins (it came from the description the user just submitted).
+ * - A value the draft leaves null keeps whatever the user already typed in that box (blank stays blank, never 0).
+ * - Businesses that were not sent for extraction are left untouched.
+ */
+export function mergeDraftIntoForm(current: ScenarioForm, draft: Draft, descriptions: Record<string, string>): ScenarioForm {
+  const drafted = new Map(draft.businesses.map((b) => [b.id, b]));
+  const used = new Set<string>();
+  const businesses = current.businesses.map((existing): FormBusiness => {
+    const d = drafted.get(existing.id.trim());
+    if (!d) return existing;
+    used.add(d.id);
+    const fromDraft = draftToForm({ ...draft, businesses: [d] }, descriptions).businesses[0];
+    const estimates = { ...existing.estimates };
+    for (const s of SERVICES) if (fromDraft.estimates[s] !== "") estimates[s] = fromDraft.estimates[s];
+    const hasDeliverable = draft.deliverables.some((x) => x.ownerId === d.id);
+    return {
+      ...existing,
+      id: d.id,
+      name: d.name || existing.name,
+      description: descriptions[d.id] ?? existing.description,
+      capacity: fromDraft.capacity !== "" ? fromDraft.capacity : existing.capacity,
+      coordination: fromDraft.coordination !== "" ? fromDraft.coordination : existing.coordination,
+      estimates,
+      requirement: hasDeliverable ? fromDraft.requirement : existing.requirement,
+    };
+  });
+  // Draft businesses that match no existing row go into empty rows, so nothing extracted is dropped.
+  const extras = draft.businesses.filter((b) => !used.has(b.id) && !current.businesses.some((x) => x.id.trim() === b.id));
+  for (const b of extras) {
+    const slot = businesses.findIndex((x) => x.id.trim() === "" && x.name.trim() === "" && x.description.trim() === "");
+    if (slot === -1) break;
+    businesses[slot] = draftToForm({ ...draft, businesses: [b] }, descriptions).businesses[0];
+  }
+  return { businesses };
+}
+
 /** Everything derived from the inputs, cleared together by any change to them. */
 const CLEARED = { result: null, confirmed: null, whatIf: null, whatIfCount: 0 } as const;
 
