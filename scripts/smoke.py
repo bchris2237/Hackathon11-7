@@ -199,7 +199,12 @@ def run(args: argparse.Namespace, report: Report) -> None:
         report.add("PASS" if r404.status == 404 and envelope_ok(r404) and error_code(r404) == "NOT_FOUND" else "FAIL", "unknown route returns our error envelope (not the gateway's)", f"HTTP {r404.status}, code {error_code(r404)}, request {r404.request_id}")
         bad = call("POST", f"{api}/optimize", body=b"{not json")
         report.add("PASS" if bad.status == 400 and envelope_ok(bad) and error_code(bad) == "MALFORMED_JSON" else "FAIL", "malformed JSON is 400 MALFORMED_JSON", f"HTTP {bad.status}, code {error_code(bad)}, request {bad.request_id}")
-        big = call("POST", f"{api}/optimize", body=b"x" * (33 * 1024))
+        # A server may answer an oversized body early and close the socket; a client can then see a reset instead of the 413. Retry once, so a
+        # transient reset cannot hide the real answer. A second failure is still reported as a FAIL by the step wrapper.
+        try:
+            big = call("POST", f"{api}/optimize", body=b"x" * (33 * 1024))
+        except ConnectionError:
+            big = call("POST", f"{api}/optimize", body=b"x" * (33 * 1024))
         report.add("PASS" if big.status == 413 and error_code(big) == "PAYLOAD_TOO_LARGE" else "FAIL", "over 32 KiB is 413", f"HTTP {big.status}, code {error_code(big)}")
         missing = copy.deepcopy(canonical)
         missing["businesses"][0]["estimates"] = []
