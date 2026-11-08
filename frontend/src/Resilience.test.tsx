@@ -310,7 +310,15 @@ describe("the health check is the one safe read that retries by itself", () => {
   });
 });
 
-describe("explicit switch between live and fixture mode", () => {
+describe("switching between live and fixture mode (only offered when the backend reports the other mode)", () => {
+  /** Backend restarted in `mode`; the page asks again and the mismatch alert appears. */
+  async function backendNowReports(user: ReturnType<typeof userEvent.setup>, mode: "live" | "fixture") {
+    server.use(healthOk(mode));
+    await user.click(screen.getByRole("button", { name: "Check the backend again" }));
+    return screen.findByTestId("mode-mismatch");
+  }
+  const switchButton = (mode: "live" | "fixture") => screen.getByRole("button", { name: `Switch the app to ${mode} mode` });
+
   async function liveWithResult() {
     vi.stubEnv("VITE_DATA_MODE", "live");
     server.use(healthOk("live"), confirmEcho, optimizeOk("live"));
@@ -321,11 +329,22 @@ describe("explicit switch between live and fixture mode", () => {
     return user;
   }
 
-  it("clears the live confirmation and result, keeps the typed inputs, and the badge stays visible", async () => {
-    const user = await liveWithResult();
-    expect(screen.getByTestId("mode-banner")).not.toHaveTextContent("SIMULATED");
+  it("there is no switch control while the app and the backend agree, so it cannot be clicked into a mismatch", async () => {
+    await liveWithResult();
+    expect(screen.queryByRole("button", { name: /^Switch/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mode-mismatch")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("mode-banner")).queryByRole("button")).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Switch to fixture mode" }));
+  it("when the backend turns out to be in the other mode: the alert offers the switch, which clears the live work, keeps the inputs, and the badge stays visible", async () => {
+    const user = await liveWithResult();
+    const alert = await backendNowReports(user, "fixture");
+    expect(alert).toHaveTextContent("this app is in live mode but the backend reports fixture mode");
+    expect(screen.getByTestId("mode-banner")).toBeVisible();
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent("LIVE MODE"); // not changed until the user decides
+
+    server.use(optimizeOk("fixture"));
+    await user.click(switchButton("fixture"));
 
     const banner = screen.getByTestId("mode-banner");
     expect(banner).toBeVisible();
@@ -339,16 +358,15 @@ describe("explicit switch between live and fixture mode", () => {
     expect(screen.getByTestId("mode-switch-note")).toHaveTextContent("Switched to fixture mode");
     expect(screen.getByLabelText("Business 1 name")).toHaveValue("DevCo");
     expect(screen.getByLabelText("Business 2 design estimate (hours)")).toHaveValue("3");
+    // The page checked the backend again, and the two now agree.
+    await waitFor(() => expect(screen.queryByTestId("mode-mismatch")).not.toBeInTheDocument());
   });
 
-  it("an honest mismatch is shown when the backend is still live; nothing is mixed", async () => {
-    const user = await liveWithResult();
-    await user.click(screen.getByRole("button", { name: "Switch to fixture mode" }));
-    expect(await screen.findByText(/Mode mismatch: this app is in fixture mode but the backend reports live mode/)).toBeInTheDocument();
-
-    // Confirming still works (no mode in that response), but a live-labelled result is refused.
-    await user.click(screen.getByRole("button", { name: "Confirm scenario" }));
-    await screen.findByTestId("confirmed-note");
+  it("while the mismatch stands, a result in the other mode is refused, never shown", async () => {
+    vi.stubEnv("VITE_DATA_MODE", "live");
+    server.use(healthOk("fixture"), confirmEcho, optimizeOk("fixture"));
+    const user = await readyToOptimize();
+    expect(await screen.findByTestId("mode-mismatch")).toBeInTheDocument();
     await clickOptimize(user);
     const alert = await screen.findByTestId("optimize-error");
     expect(alert).toHaveAttribute("data-kind", "mode_mismatch");
@@ -357,19 +375,30 @@ describe("explicit switch between live and fixture mode", () => {
     expect(within(alert).queryByRole("button", { name: /Try again/ })).not.toBeInTheDocument();
   });
 
-  it("works with a fixture-mode backend and can switch back to live", async () => {
+  it("restarting the backend in the app's own mode and checking again also resolves it, with nothing cleared", async () => {
     const user = await liveWithResult();
-    server.use(healthOk("fixture"), optimizeOk("fixture"));
-    await user.click(screen.getByRole("button", { name: "Switch to fixture mode" }));
+    await backendNowReports(user, "fixture");
+    server.use(healthOk("live"));
+    await user.click(screen.getByRole("button", { name: "Check the backend again" }));
+    await waitFor(() => expect(screen.queryByTestId("mode-mismatch")).not.toBeInTheDocument());
+    expect(screen.getByTestId("optimize-result")).toBeInTheDocument();
+    expect(screen.getByTestId("mode-banner")).toHaveTextContent("LIVE MODE");
+  });
+
+  it("can follow the backend back to live", async () => {
+    const user = await liveWithResult();
+    await backendNowReports(user, "fixture");
+    server.use(optimizeOk("fixture"));
+    await user.click(switchButton("fixture"));
     await screen.findByText(/Backend OK/);
-    expect(screen.queryByText(/Mode mismatch/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Confirm scenario" }));
     await screen.findByTestId("confirmed-note");
     await clickOptimize(user);
     await screen.findByTestId("optimize-result");
 
-    server.use(healthOk("live"), optimizeOk("live"));
-    await user.click(screen.getByRole("button", { name: "Switch to live mode" }));
+    server.use(optimizeOk("live"));
+    await backendNowReports(user, "live");
+    await user.click(switchButton("live"));
     expect(screen.getByTestId("mode-banner")).toHaveTextContent("LIVE MODE");
     expect(screen.queryByTestId("optimize-result")).not.toBeInTheDocument();
     expect(screen.getByTestId("mode-switch-note")).toHaveTextContent("Switched to live mode");
@@ -381,15 +410,16 @@ describe("explicit switch between live and fixture mode", () => {
       healthOk("live"),
       confirmEcho,
       optimizeWith(async () => {
-        await delay(400);
+        await delay(500);
         return HttpResponse.json({ result: collaboration, mode: "live" });
       }),
     );
     const user = await readyToOptimize();
     await clickOptimize(user);
     await screen.findByText("Calculating the best allocation…");
-    await user.click(screen.getByRole("button", { name: "Switch to fixture mode" }));
-    await settle(800);
+    await backendNowReports(user, "fixture");
+    await user.click(switchButton("fixture"));
+    await settle(900);
     expect(screen.queryByTestId("optimize-result")).not.toBeInTheDocument();
     expect(screen.queryByTestId("optimize-error")).not.toBeInTheDocument();
     expect(screen.queryByText("Calculating the best allocation…")).not.toBeInTheDocument();
@@ -407,14 +437,16 @@ describe("explicit switch between live and fixture mode", () => {
     });
     await user.click(screen.getByRole("button", { name: "Extract draft" }));
     await screen.findByTestId("extraction-review");
-    await user.click(screen.getByRole("button", { name: "Switch to fixture mode" }));
+    await backendNowReports(user, "fixture");
+    await user.click(switchButton("fixture"));
     expect(screen.queryByTestId("extraction-review")).not.toBeInTheDocument();
     expect(screen.getByTestId("mode-banner")).toHaveTextContent("SIMULATED");
   });
 
   it("the note about the switch disappears at the next edit", async () => {
     const user = await liveWithResult();
-    await user.click(screen.getByRole("button", { name: "Switch to fixture mode" }));
+    await backendNowReports(user, "fixture");
+    await user.click(switchButton("fixture"));
     expect(screen.getByTestId("mode-switch-note")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Business 1 name"), "x");
     expect(screen.queryByTestId("mode-switch-note")).not.toBeInTheDocument();

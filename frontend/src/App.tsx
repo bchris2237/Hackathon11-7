@@ -34,8 +34,9 @@ export default function App() {
   const validation = useMemo(() => validateForm(scenario.form), [scenario.form]);
   const [switchNote, setSwitchNote] = useState<{ mode: DataMode; version: number } | null>(null);
 
-  // Switching mode is deliberate. It keeps what the user typed but drops everything produced
-  // under the other mode (confirmation, result, what-if) and cancels requests in flight.
+  // Switching mode is deliberate and only offered when the backend reports the other mode, so
+  // it can never be clicked by accident into a mismatch. It keeps what the user typed but drops
+  // everything produced under the other mode (confirmation, result, what-if) and cancels requests in flight.
   function switchMode() {
     const next: DataMode = dataMode === "fixture" ? "live" : "fixture";
     dispatch({ type: "reset_derived" });
@@ -76,19 +77,12 @@ export default function App() {
         className={
           isFixture
             ? "bg-amber-300 px-4 py-2 text-center text-sm font-semibold text-amber-950"
-            : "on-dark bg-emerald-800 px-4 py-2 text-center text-sm font-semibold text-white"
+            : "bg-emerald-800 px-4 py-2 text-center text-sm font-semibold text-white"
         }
       >
         {isFixture
           ? "FIXTURE MODE: SIMULATED data only. Nothing here comes from AWS."
           : "LIVE MODE: results come from the backend. Failures are shown, never replaced by sample data."}
-        <button
-          type="button"
-          onClick={switchMode}
-          className="ml-3 min-h-8 rounded border border-current bg-transparent px-3 py-1 text-xs font-medium"
-        >
-          {isFixture ? "Switch to live mode" : "Switch to fixture mode"}
-        </button>
       </div>
 
       <header className="border-b border-slate-200 bg-white">
@@ -113,10 +107,24 @@ export default function App() {
           </p>
         )}
         {modeMismatch && state.kind === "ok" && (
-          <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-900">
-            Mode mismatch: this app is in {dataMode} mode but the backend reports {state.health.mode} mode.
-            Fix VITE_DATA_MODE or APP_MODE before trusting any result.
-          </p>
+          <div role="alert" data-testid="mode-mismatch" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-900">
+            <p>
+              Mode mismatch: this app is in {dataMode} mode but the backend reports {state.health.mode} mode. Results from
+              this backend are refused until the two agree.
+            </p>
+            <p className="mt-1 text-sm">
+              Switch the app to {state.health.mode} mode (nothing you typed is lost), or restart the backend with{" "}
+              <code>APP_MODE={dataMode}</code> and check again. The app's starting mode comes from{" "}
+              <code>VITE_DATA_MODE</code>.
+            </p>
+            <button
+              type="button"
+              onClick={switchMode}
+              className="mt-2 min-h-8 rounded border border-red-700 bg-white px-3 py-1 text-sm font-medium text-red-900"
+            >
+              Switch the app to {state.health.mode} mode
+            </button>
+          </div>
         )}
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -223,10 +231,19 @@ export default function App() {
             <div className="mt-3" data-testid="health-state" aria-live="polite">
               {state.kind === "checking" && <Pending>Checking /health…</Pending>}
               {state.kind === "ok" && (
-                <p className="text-emerald-900">
-                  Backend OK. Schema v{state.health.schemaVersion}, mode <strong>{state.health.mode}</strong>, commit{" "}
-                  <code>{state.health.commit}</code>.
-                </p>
+                <>
+                  <p className="text-emerald-900">
+                    Backend OK. Schema v{state.health.schemaVersion}, mode <strong>{state.health.mode}</strong>, commit{" "}
+                    <code>{state.health.commit}</code>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setHealthAttempt((n) => n + 1)}
+                    className="mt-1 min-h-8 rounded border border-slate-500 bg-white px-3 py-1 text-sm font-medium"
+                  >
+                    Check the backend again
+                  </button>
+                </>
               )}
               {state.kind === "unavailable" && (
                 <AsyncError

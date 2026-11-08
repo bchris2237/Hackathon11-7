@@ -10,6 +10,7 @@ const BASE_CORS = {
 };
 
 async function stubApi(page: Page, opts: { exposeRetryAfter: boolean; healthMode?: "fixture" | "live" }) {
+  const backend = { mode: opts.healthMode ?? "fixture" }; // what GET /health reports; a test can change it
   const cors = opts.exposeRetryAfter ? { ...BASE_CORS, "access-control-expose-headers": "Retry-After" } : BASE_CORS;
   let optimizeCalls = 0;
   await page.route("http://127.0.0.1:8000/**", async (route) => {
@@ -18,7 +19,7 @@ async function stubApi(page: Page, opts: { exposeRetryAfter: boolean; healthMode
     const path = new URL(request.url()).pathname;
     const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
       route.fulfill({ status, headers: { ...cors, ...extra }, contentType: "application/json", body: JSON.stringify(body) });
-    if (path === "/health") return json({ status: "ok", schemaVersion: "1", commit: "e2e-stub", mode: opts.healthMode ?? "fixture" });
+    if (path === "/health") return json({ status: "ok", schemaVersion: "1", commit: "e2e-stub", mode: backend.mode });
     if (path === "/confirm") return json({ scenario: request.postDataJSON().scenario });
     if (path === "/optimize") {
       optimizeCalls += 1;
@@ -26,7 +27,7 @@ async function stubApi(page: Page, opts: { exposeRetryAfter: boolean; healthMode
     }
     return json({}, 404);
   });
-  return () => optimizeCalls;
+  return Object.assign(() => optimizeCalls, { setBackendMode: (mode: "fixture" | "live") => void (backend.mode = mode) });
 }
 
 async function toOptimize(page: Page) {
@@ -58,22 +59,30 @@ test("429 whose Retry-After is NOT exposed by CORS: the page cannot see it (back
   await expect(alert.getByRole("button", { name: "Try again" })).toBeEnabled();
 });
 
-test("switching mode in the browser clears the work product, keeps the badge, and shows an honest mismatch", async ({ page }) => {
-  await stubApi(page, { exposeRetryAfter: true, healthMode: "fixture" });
+test("the mode switch exists only when the backend reports the other mode, clears the work product, keeps the badge", async ({ page }) => {
+  const stub = await stubApi(page, { exposeRetryAfter: true, healthMode: "fixture" });
   await page.goto("/");
   await page.getByRole("button", { name: "Load fictional sample" }).click();
   await page.getByRole("button", { name: "Confirm scenario" }).click();
   await expect(page.getByTestId("confirmed-note")).toBeVisible();
-
-  await page.getByRole("button", { name: "Switch to live mode" }).click();
   const banner = page.getByTestId("mode-banner");
+
+  // App and backend agree: nothing can be clicked into a mismatch.
+  await expect(page.getByRole("button", { name: /^Switch/ })).toHaveCount(0);
+  await expect(banner.getByRole("button")).toHaveCount(0);
+
+  // The backend is restarted in the other mode and the user checks again.
+  stub.setBackendMode("live");
+  await page.getByRole("button", { name: "Check the backend again" }).click();
+  await expect(page.getByTestId("mode-mismatch")).toContainText("this app is in fixture mode but the backend reports live mode");
+  await expect(banner).toContainText("SIMULATED"); // unchanged until the user decides
+
+  await page.getByRole("button", { name: "Switch the app to live mode" }).click();
   await expect(banner).toBeVisible();
   await expect(banner).toContainText("LIVE MODE");
   await expect(page.getByTestId("confirmed-note")).toHaveCount(0);
   await expect(page.getByTestId("mode-switch-note")).toContainText("Switched to live mode");
   await expect(page.getByLabel("Business 1 name")).toHaveValue("DevCo");
-  await expect(page.getByText(/Mode mismatch: this app is in live mode but the backend reports fixture mode/)).toBeVisible();
-
-  await page.getByRole("button", { name: "Switch to fixture mode" }).click();
-  await expect(banner).toContainText("SIMULATED");
+  await expect(page.getByTestId("mode-mismatch")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Switch/ })).toHaveCount(0);
 });
