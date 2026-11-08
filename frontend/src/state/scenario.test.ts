@@ -4,6 +4,7 @@ import disruption from "../../../fixtures/disruption.json";
 import extraction from "../../../fixtures/extraction.json";
 import type { Change, Result, Scenario } from "../../../contracts/models";
 import {
+  mergeDraftIntoForm,
   applyChanges,
   changeFromDraft,
   checkChanges,
@@ -349,5 +350,26 @@ describe("what-if state", () => {
     expect(scenarioReducer(s, { type: "load_canonical" }).whatIf).toBeNull();
     expect(scenarioReducer(s, { type: "reset" }).whatIf).toBeNull();
     expect(scenarioReducer(s, { type: "set_result", forVersion: s.version, result: fakeResult }).whatIf).toBeNull();
+  });
+});
+
+describe("mergeDraftIntoForm", () => {
+  const texts = () => Object.fromEntries(extraction.request.descriptions.map((d: any) => [d.id, d.text]));
+
+  it("keeps numbers the user edited when the description did not change", () => {
+    const form = loadCanonicalForm();
+    const sample = Object.fromEntries(form.businesses.map((b) => [b.id, b.description]));
+    form.businesses[0].capacity = "7";
+    const merged = mergeDraftIntoForm(form, extraction.response.draft as any, sample);
+    expect(merged.businesses[0].capacity).toBe("7");
+    expect(merged.businesses[1].capacity).toBe(form.businesses[1].capacity);
+  });
+
+  it("lets a changed description win over the old numbers", () => {
+    const form = loadCanonicalForm();
+    form.businesses[2].description = texts()[form.businesses[2].id];
+    form.businesses[2].capacity = "7";
+    const merged = mergeDraftIntoForm(form, extraction.response.draft as any, texts());
+    expect(merged.businesses[2].capacity).not.toBe("7");
   });
 });

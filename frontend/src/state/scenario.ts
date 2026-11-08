@@ -22,6 +22,11 @@ export interface FormBusiness {
   estimates: Record<Service, string>;
   /** The one deliverable this business needs (MVP: one per business). */
   requirement: { deliverableId: string; service: Service };
+  /**
+   * The description text the values in this row were last filled from (the sample, or the last extraction).
+   * If the description is unchanged since then, extraction must not overwrite numbers the user typed.
+   */
+  valuesFrom?: string;
 }
 
 export interface ScenarioForm {
@@ -111,6 +116,7 @@ export function loadCanonicalForm(): ScenarioForm {
         id: b.id,
         name: b.name,
         description: sampleDescriptions.get(b.id) ?? "",
+        valuesFrom: sampleDescriptions.get(b.id) ?? "",
         capacity: formatDuration(b.capacityMinutes),
         coordination: formatDuration(b.coordinationMinutes),
         estimates,
@@ -295,8 +301,8 @@ export function draftToForm(draft: Draft, descriptions: Record<string, string>):
 
 /**
  * Applies an extraction draft on top of what the user already entered, instead of replacing it.
- * - A value the draft states wins (it came from the description the user just submitted).
- * - A value the draft leaves null keeps whatever the user already typed in that box (blank stays blank, never 0).
+ * - If the description changed since the numbers were filled, what the description states wins; a value it leaves out keeps what was typed.
+ * - If the description did not change, numbers the user typed or edited win; extraction only fills empty boxes. Blank stays blank, never 0.
  * - Businesses that were not sent for extraction are left untouched.
  */
 export function mergeDraftIntoForm(current: ScenarioForm, draft: Draft, descriptions: Record<string, string>): ScenarioForm {
@@ -307,18 +313,24 @@ export function mergeDraftIntoForm(current: ScenarioForm, draft: Draft, descript
     if (!d) return existing;
     used.add(d.id);
     const fromDraft = draftToForm({ ...draft, businesses: [d] }, descriptions).businesses[0];
+    // If the description is the same text these numbers came from, whatever the user typed in the boxes wins and the draft only
+    // fills empty boxes. If the description changed (or was never extracted), what it states wins.
+    const descriptionUnchanged = existing.valuesFrom !== undefined && existing.valuesFrom.trim() === (descriptions[d.id] ?? existing.description).trim();
+    const pick = (typed: string, drafted: string) => (descriptionUnchanged ? (typed !== "" ? typed : drafted) : drafted !== "" ? drafted : typed);
     const estimates = { ...existing.estimates };
-    for (const s of SERVICES) if (fromDraft.estimates[s] !== "") estimates[s] = fromDraft.estimates[s];
+    for (const s of SERVICES) estimates[s] = pick(existing.estimates[s], fromDraft.estimates[s]);
     const hasDeliverable = draft.deliverables.some((x) => x.ownerId === d.id);
+    const keepRequirement = descriptionUnchanged && existing.requirement.deliverableId !== "";
     return {
       ...existing,
       id: d.id,
       name: d.name || existing.name,
       description: descriptions[d.id] ?? existing.description,
-      capacity: fromDraft.capacity !== "" ? fromDraft.capacity : existing.capacity,
-      coordination: fromDraft.coordination !== "" ? fromDraft.coordination : existing.coordination,
+      valuesFrom: descriptions[d.id] ?? existing.description,
+      capacity: pick(existing.capacity, fromDraft.capacity),
+      coordination: pick(existing.coordination, fromDraft.coordination),
       estimates,
-      requirement: hasDeliverable ? fromDraft.requirement : existing.requirement,
+      requirement: hasDeliverable && !keepRequirement ? fromDraft.requirement : existing.requirement,
     };
   });
   // Draft businesses that match no existing row go into empty rows, so nothing extracted is dropped.
