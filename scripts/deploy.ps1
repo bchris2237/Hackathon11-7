@@ -196,9 +196,11 @@ $overrides = @(
   "ReservedConcurrency=$ReservedConcurrency",
   "EnableProfiles=$(if ($EnableProfiles) { 'true' } else { 'false' })",
   "ProfileTtlSeconds=$ProfileTtlSeconds",
-  "MonthlyBudgetUsd=$MonthlyBudgetUsd",
-  "BudgetAlertEmail=$BudgetAlertEmail"
+  "MonthlyBudgetUsd=$MonthlyBudgetUsd"
 )
+# SAM CLI rejects an override with an empty value ("BudgetAlertEmail=" is "not a valid format"), so the parameter's own
+# empty default is used unless an address was given.
+if ($BudgetAlertEmail) { $overrides += "BudgetAlertEmail=$BudgetAlertEmail" }
 $deployArgs = @(
   "deploy", "-t", (Join-Path $Root ".aws-sam\build\template.yaml"),
   "--stack-name", $StackName, "--region", $Region,

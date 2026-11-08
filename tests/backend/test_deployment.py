@@ -781,9 +781,22 @@ def test_correct_typed_account_deploys_with_a_change_set_confirmation_and_exact_
     ):
         assert needle in deploy, f"{needle} missing from: {deploy}"
     assert "--guided" not in deploy
+    assert not re.search(r"\b\w+=(\s|$)", deploy), "SAM CLI rejects an override with an empty value (found on the real CLI): " + deploy
+    assert "BudgetAlertEmail" not in deploy and "MonthlyBudgetUsd=0" in deploy, "no budget unless asked for"
     assert re.search(r"CommitSha=[0-9a-f]{12}", deploy), "the real git commit is passed so /health can be compared"
     assert any(c.startswith("aws cloudformation describe-stacks") for c in calls)
     assert "AKIA" not in out and "SecretAccessKey" not in out
+
+
+@needs_powershell
+def test_budget_flags_are_passed_together_and_validated_before_any_deploy(sandbox):
+    (sandbox.repo / "optimizer" / "api.py").write_text("def optimize(s):\n    return s\n", encoding="utf-8")
+    code, out, calls = sandbox(*DEPLOY_ARGS, "-MonthlyBudgetUsd", "25", "-BudgetAlertEmail", "owner@example.com", stdin="111122223333\n")
+    deploy = next(c for c in calls if c.startswith("sam deploy"))
+    assert code == 0 and "MonthlyBudgetUsd=25" in deploy and "BudgetAlertEmail=owner@example.com" in deploy, out
+    for bad in (("-MonthlyBudgetUsd", "25"), ("-MonthlyBudgetUsd", "abc", "-BudgetAlertEmail", "owner@example.com"), ("-BudgetAlertEmail", "not-an-email")):
+        code, out, calls = sandbox(*DEPLOY_ARGS, *bad, stdin="111122223333\n")
+        assert code == 1 and not any(c.startswith("sam deploy") for c in calls), (bad, out)
 
 
 @needs_powershell
