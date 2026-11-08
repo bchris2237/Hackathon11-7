@@ -149,7 +149,18 @@ def default_adapters(
     if settings is None:
         return adapters
 
+    import os
+
+    from backend.profiles import build_profile_adapters
     from backend.simulation import Simulator
+
+    # Optional persistence (B7), both modes. Without PROFILE_TABLE both routes answer 503 PERSISTENCE_DISABLED.
+    # There is never an in-memory substitute: it would be simulated storage presented as real.
+    environment = os.environ if env is None else env
+    put_profile, get_profile = build_profile_adapters(
+        settings.profile_table, settings.profile_ttl_seconds, (environment.get("AWS_REGION") or None)
+    )
+    adapters = dataclasses.replace(adapters, put_profile=put_profile, get_profile=get_profile)
 
     loaded = (optimizer_loader or load_optimizer_function)()
     optimizer_ready = callable(loaded)
@@ -173,13 +184,11 @@ def default_adapters(
     if settings.mode != "live":
         return adapters
 
-    import os
-
     from backend.bedrock import BedrockClient, load_bedrock_settings
     from backend.explanation import Explainer
     from backend.extraction import BedrockExtractor
 
-    bedrock_settings = load_bedrock_settings(os.environ if env is None else env)
+    bedrock_settings = load_bedrock_settings(environment)
     if bedrock_settings is None:
         return dataclasses.replace(
             adapters,
@@ -390,9 +399,9 @@ class App:
     @staticmethod
     def _check_request_rules(model: BaseModel) -> None:
         """Contract rules JSON Schema states but the generated Pydantic models cannot express."""
-        if isinstance(model, (ConfirmRequest, OptimizeRequest, ExplainRequest, SimulateRequest)):
-            # Same checks for every route that takes a scenario, run before any adapter. Routes built
-            # later (certificates, profiles) must call this too.
+        if isinstance(model, (ConfirmRequest, OptimizeRequest, ExplainRequest, SimulateRequest, ProfilePutRequest)):
+            # Same checks for every route that takes a scenario, run before any adapter. A route built
+            # later (certificates) must call this too.
             validate_scenario(model.scenario)
         if isinstance(model, SimulateRequest) and model.text is not None:
             offending = [name for name, bad in (("changes", bool(model.changes)), ("apply", model.apply)) if bad]

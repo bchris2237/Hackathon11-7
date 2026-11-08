@@ -82,3 +82,11 @@ The case "four businesses (MVP is exactly 3)" in `fixtures/contract-cases.json` 
 To enable the 5-business extension later, it is a joint contract change: raise those four maxItems values to 5
 (and `Scenario.businesses` maxItems), add valid fixtures for 4 and 5, remove the four-businesses invalid case,
 regenerate, rerun all tests, and update the UI layout and optimizer tests.
+
+## Optional profile routes (B7): documentation additions, no schema change
+
+`PUT /profiles/{id}` and `GET /profiles/{id}` keep their request and response schemas. B7 only documents more error responses in
+`contracts/api.openapi.yaml`: `400`, `409` (`PROFILE_EXISTS`), `413`, `429` for PUT and `404` (`PROFILE_NOT_FOUND`), `422`, `429` for GET.
+Behaviour a client (Developer 3) must know: the client invents the id (at least 32 URL-safe characters from a cryptographic random
+source; weak ids are `422` with `fields: ["id"]`), an id can be written once, a profile expires (default one day), and with no table configured both
+routes answer `503 PERSISTENCE_DISABLED`. The routes are optional; the main workflow must not depend on them.

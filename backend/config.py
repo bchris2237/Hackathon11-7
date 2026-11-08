@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -16,6 +17,10 @@ MIN_ADAPTER_TIMEOUT_SECONDS = 0.1
 MAX_ADAPTER_TIMEOUT_SECONDS = 28.0
 DEFAULT_MAX_IN_FLIGHT = 4
 MAX_MAX_IN_FLIGHT = 16
+DEFAULT_PROFILE_TTL_SECONDS = 86400  # 24 hours
+MIN_PROFILE_TTL_SECONDS = 300
+MAX_PROFILE_TTL_SECONDS = 604800  # 7 days
+_TABLE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,255}$")
 
 
 class ConfigError(Exception):
@@ -32,6 +37,9 @@ class Settings:
     adapter_timeout_seconds: float = DEFAULT_ADAPTER_TIMEOUT_SECONDS
     # Most adapter calls allowed at once. More get 429 with Retry-After.
     max_in_flight: int = DEFAULT_MAX_IN_FLIGHT
+    # Optional profile persistence (B7). None = disabled: /profiles answers 503 PERSISTENCE_DISABLED.
+    profile_table: str | None = None
+    profile_ttl_seconds: int = DEFAULT_PROFILE_TTL_SECONDS
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -69,6 +77,17 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     if not 1 <= max_in_flight <= MAX_MAX_IN_FLIGHT:
         raise ConfigError(f"MAX_IN_FLIGHT must be 1..{MAX_MAX_IN_FLIGHT}, got {max_in_flight}.")
 
+    profile_table = (env.get("PROFILE_TABLE") or "").strip() or None
+    if profile_table is not None and not _TABLE_NAME_RE.match(profile_table):
+        raise ConfigError("PROFILE_TABLE has an invalid format.")
+    raw_ttl = (env.get("PROFILE_TTL_SECONDS") or str(DEFAULT_PROFILE_TTL_SECONDS)).strip()
+    try:
+        profile_ttl = int(raw_ttl)
+    except ValueError as exc:
+        raise ConfigError("PROFILE_TTL_SECONDS must be an integer.") from exc
+    if not MIN_PROFILE_TTL_SECONDS <= profile_ttl <= MAX_PROFILE_TTL_SECONDS:
+        raise ConfigError(f"PROFILE_TTL_SECONDS must be {MIN_PROFILE_TTL_SECONDS}..{MAX_PROFILE_TTL_SECONDS}, got {profile_ttl}.")
+
     origins = tuple(
         o.strip().rstrip("/") for o in (env.get("ALLOWED_ORIGIN") or DEFAULT_ALLOWED_ORIGINS).split(",") if o.strip()
     )
@@ -83,4 +102,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         port=port,
         adapter_timeout_seconds=timeout,
         max_in_flight=max_in_flight,
+        profile_table=profile_table,
+        profile_ttl_seconds=profile_ttl,
     )

@@ -101,6 +101,26 @@ def resolve(value: Any, template: dict[str, Any]) -> Any:
     return value
 
 
+NO_VALUE = object()
+
+
+def environment_for(template: dict[str, Any]) -> dict[str, str]:
+    """The function's environment as CloudFormation would produce it with the parameter defaults (profiles off => key absent)."""
+    fn = next(iter(resources(template, "AWS::Serverless::Function").values()))["Properties"]
+    env: dict[str, str] = {}
+    for key, value in fn["Environment"]["Variables"].items():
+        if isinstance(value, dict) and set(value) == {"Fn::If"}:
+            condition, when_true, when_false = value["Fn::If"]
+            assert condition == "ProfilesEnabled", "only the optional profile settings may be conditional"
+            enabled = str(template["Parameters"]["EnableProfiles"]["Default"]) == "true"
+            chosen = when_true if enabled else when_false
+            if chosen == {"Ref": "AWS::NoValue"}:
+                continue
+            value = chosen
+        env[key] = str(resolve(value, template))
+    return env
+
+
 # ================================================================== template: structure and safety
 def test_template_is_a_sam_template_for_python_312_on_x86(template):
     assert template["Transform"] == "AWS::Serverless-2016-10-31"
@@ -232,7 +252,9 @@ def test_the_stack_is_live_mode_only_and_never_sets_reserved_or_credential_names
     assert set(env) == {
         "APP_MODE", "ALLOWED_ORIGIN", "BEDROCK_MODEL_ID", "COMMIT_SHA", "MAX_IN_FLIGHT",
         "ADAPTER_TIMEOUT_SECONDS", "BEDROCK_MAX_OUTPUT_TOKENS", "BEDROCK_READ_TIMEOUT_SECONDS", "BEDROCK_STRUCTURED_OUTPUT",
+        "PROFILE_TABLE", "PROFILE_TTL_SECONDS",
     }
+    assert "PROFILE_TABLE" not in environment_for(template), "profile storage is OFF by default: no table name reaches the function"
 
 
 def test_outputs_give_the_url_health_and_region_and_nothing_sensitive(template):
@@ -245,7 +267,7 @@ def test_outputs_give_the_url_health_and_region_and_nothing_sensitive(template):
 # ================================================================== the template's environment really loads
 def test_template_environment_loads_through_the_backends_own_configuration_code(template):
     fn = next(iter(resources(template, "AWS::Serverless::Function").values()))["Properties"]
-    env = {k: str(resolve(v, template)) for k, v in fn["Environment"]["Variables"].items()}
+    env = environment_for(template)
     env["AWS_REGION"] = "us-west-2"  # what Lambda provides
     settings = load_settings(env)
     assert settings.mode == "live" and settings.commit == "abc123def456"
@@ -268,8 +290,9 @@ def test_the_built_function_handles_a_health_event_with_the_templates_environmen
     import backend.app as module
 
     fn = next(iter(resources(template, "AWS::Serverless::Function").values()))["Properties"]
-    for key, value in fn["Environment"]["Variables"].items():
-        monkeypatch.setenv(key, str(resolve(value, template)))
+    for key, value in environment_for(template).items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("PROFILE_TABLE", raising=False)
     monkeypatch.setenv("AWS_REGION", "us-west-2")
     monkeypatch.setattr(module, "_APP", None)
     monkeypatch.setattr(module, "load_optimizer_function", lambda: None)

@@ -87,8 +87,24 @@ Parameters:
     Default: 512
     AllowedValues: [256, 512, 1024]
 
+  EnableProfiles:
+    Type: String
+    Default: "false"
+    AllowedValues: ["false", "true"]
+    Description: >-
+      OPTIONAL profile storage (PUT/GET /profiles/{id}). "true" creates one on-demand DynamoDB table with a TTL and grants the function
+      PutItem and GetItem on that table only. FICTIONAL demo scenarios only: the API has no authentication and an unguessable id is a shared
+      secret, not a login. Changing this from "true" back to "false" DELETES the table and everything in it.
+
+  ProfileTtlSeconds:
+    Type: Number
+    Default: 86400
+    MinValue: 300
+    MaxValue: 604800
+    Description: How long a stored profile is kept (5 minutes to 7 days). DynamoDB removes expired items eventually, up to 48 hours late; the API ignores them as soon as they expire.
 Conditions:
   HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, "-1"]]
+  ProfilesEnabled: !Equals [!Ref EnableProfiles, "true"]
 
 Globals:
   Function:
@@ -133,6 +149,44 @@ Resources:
                   - bedrock:InvokeModel
                 Resource: !Split [",", !Ref BedrockResourceArns]
 
+  # ------------------------------------------------------------------------------- optional profile storage
+  # Created only when EnableProfiles=true. On-demand billing (no capacity to size or forget), TTL on `expiresAt`, encrypted at rest with
+  # DynamoDB's default AWS-owned key, no point-in-time recovery and no deletion protection: these are disposable demo records.
+  ProfilesTable:
+    Type: AWS::DynamoDB::Table
+    Condition: ProfilesEnabled
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  # A separate policy so the base role is unchanged when profiles are off. Exactly two actions, exactly one table:
+  # no Scan, no Query, no UpdateItem, no DeleteItem, no index, no wildcard.
+  ProfilesAccess:
+    Type: AWS::IAM::Policy
+    Condition: ProfilesEnabled
+    Properties:
+      PolicyName: profiles-table-put-get-only
+      Roles:
+        - !Ref ExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:PutItem
+              - dynamodb:GetItem
+            Resource: !GetAtt ProfilesTable.Arn
+
   # ------------------------------------------------------------------------------------------- function
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -159,6 +213,8 @@ Resources:
           BEDROCK_MAX_OUTPUT_TOKENS: "1500"
           BEDROCK_READ_TIMEOUT_SECONDS: "10"
           BEDROCK_STRUCTURED_OUTPUT: "off"
+          PROFILE_TABLE: !If [ProfilesEnabled, !Ref ProfilesTable, !Ref "AWS::NoValue"]
+          PROFILE_TTL_SECONDS: !Ref ProfileTtlSeconds
       Events:
         AnyRoute:
           Type: HttpApi
@@ -198,6 +254,10 @@ Outputs:
     Value: !Ref ApiFunction
   LogGroupName:
     Value: !Ref FunctionLogGroup
+  ProfilesTableName:
+    Condition: ProfilesEnabled
+    Description: DynamoDB table holding profiles (only when EnableProfiles=true). Check with `aws dynamodb describe-table` and `describe-time-to-live`.
+    Value: !Ref ProfilesTable
   BedrockRegion:
     Description: Bedrock is called in the stack's own region (AWS_REGION is set by Lambda).
     Value: !Ref "AWS::Region"

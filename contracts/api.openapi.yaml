@@ -138,7 +138,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "api.schema.json#/$defs/ProfileResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
     get:
       operationId: getProfile
@@ -149,6 +153,9 @@ paths:
           content:
             application/json:
               schema: { $ref: "api.schema.json#/$defs/ProfileResponse" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
   /certificates:
     post:

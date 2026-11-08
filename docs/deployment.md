@@ -157,6 +157,28 @@ aws logs filter-log-events --log-group-name <LogGroupName> --region <region> --f
 Log lines hold method, route template, status, duration, request id and error code only. They never contain request bodies, descriptions, scenarios, model output or credentials
 (this is tested). Copy only those lines into the compliance record. The smoke script prints the matching `X-Request-Id` values.
 
+### 5a. Optional: stored profiles (B7)
+
+Off by default. Add `-EnableProfiles` (and optionally `-ProfileTtlSeconds <300..604800>`, default 86400) to the deploy command to create one
+on-demand DynamoDB table and let the function call only `PutItem` and `GetItem` on it. `EnableProfiles` is the matching template parameter.
+
+- **Fictional data only.** Never store real people or real businesses. The server runs a best-effort check on business names; it is not a guarantee.
+- **The id is not authentication.** The client invents a random id (at least 32 URL-safe characters) and the server refuses weak ones.
+  Anyone who learns an id can read that profile. There is no listing, overwrite or delete route; a profile simply expires.
+- **Expiry.** Each item has an `expiresAt` epoch-seconds TTL. DynamoDB may take up to 48 hours to physically remove an expired item; the API
+  treats an expired item as 404 immediately.
+- **Redeploying without `-EnableProfiles` deletes the table** and everything in it (the table's deletion policy is Delete).
+
+After deploying with `-EnableProfiles`, verify (these are NOT RUN until you run them):
+
+```powershell
+python scripts\smoke.py --api-url <ApiUrl> --expect-commit <sha> --origin <origin> --profiles
+aws dynamodb describe-table --table-name <ProfilesTableName output> --region <region> --query "Table.[TableStatus,BillingModeSummary.BillingMode]"
+aws dynamodb describe-time-to-live --table-name <ProfilesTableName output> --region <region>
+```
+
+`describe-time-to-live` should report `TimeToLiveStatus` `ENABLED` with attribute `expiresAt`.
+
 ## 6. After the demo: stop the spending
 
 ```powershell

@@ -338,11 +338,42 @@ def run(args: argparse.Namespace, report: Report) -> None:
 
     report.add("PASS" if canonical == original else "FAIL", "the base scenario was never modified by this run", "")
 
+    # 9b. optional profile storage (B7) -------------------------------------------------------------------------
+    if args.profiles:
+        step("profiles", lambda: check_profiles(api, canonical, report))
+    else:
+        report.add("INFO", "profile storage was not checked", "optional; pass --profiles against a stack deployed with -EnableProfiles")
+
     # 10. hosted frontend ---------------------------------------------------------------------------------------
     if args.frontend_url:
         step("frontend", lambda: check_frontend(args.frontend_url.rstrip("/"), api, report))
     else:
         report.add("SKIPPED", "hosted frontend: no credentials in the bundle, SPA rewrite works", "no --frontend-url given")
+
+
+def check_profiles(api: str, canonical: dict[str, Any], report: Report) -> None:
+    """Optional B7 steps. Stores ONE fictional fixture under a random id; it expires by itself (the table's TTL)."""
+    import secrets
+
+    pid = secrets.token_urlsafe(24)  # 32 URL-safe characters from a cryptographic source; never printed
+    url = f"{api}/profiles/{pid}"
+    put = call("PUT", url, body={"scenario": canonical})
+    stored = put.json() or {}
+    ok = put.status == 200 and isinstance(stored, dict) and stored.get("id") == pid and stored.get("scenario") == canonical
+    report.add("PASS" if ok else "FAIL", "profile PUT stores the fictional canonical scenario", f"HTTP {put.status}, {put.ms:.0f} ms, request {put.request_id}, code {error_code(put)}")
+    if not ok:
+        return
+    got = call("GET", url)
+    body = got.json() or {}
+    report.add("PASS" if got.status == 200 and isinstance(body, dict) and body.get("scenario") == canonical else "FAIL", "profile GET returns exactly what was stored", f"HTTP {got.status}, {got.ms:.0f} ms, request {got.request_id}")
+    again = call("PUT", url, body={"scenario": canonical})
+    report.add("PASS" if again.status == 409 and error_code(again) == "PROFILE_EXISTS" else "FAIL", "a second PUT to the same id is refused with 409", f"HTTP {again.status}, code {error_code(again)}")
+    unknown = call("GET", f"{api}/profiles/{secrets.token_urlsafe(24)}")
+    report.add("PASS" if unknown.status == 404 and error_code(unknown) == "PROFILE_NOT_FOUND" else "FAIL", "an unknown id is 404", f"HTTP {unknown.status}, code {error_code(unknown)}")
+    weak = call("PUT", f"{api}/profiles/{'a' * 40}", body={"scenario": canonical})
+    report.add("PASS" if weak.status == 422 and error_code(weak) == "VALIDATION_ERROR" else "FAIL", "a weak id is refused with 422", f"HTTP {weak.status}, code {error_code(weak)}")
+    listing = call("GET", f"{api}/profiles")
+    report.add("PASS" if listing.status in (404, 405) else "FAIL", "profile route is not a listing endpoint", f"HTTP {listing.status}")
 
 
 def check_frontend(site: str, api: str, report: Report) -> None:
@@ -369,6 +400,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--expect-commit", help="git commit id you deployed (compared with GET /health)")
     p.add_argument("--origin", help="the hosted frontend origin that CORS must allow")
     p.add_argument("--frontend-url", help="hosted frontend URL to scan for credentials and test the SPA rewrite")
+    p.add_argument("--profiles", action="store_true", help="also test optional profile storage (needs a stack deployed with -EnableProfiles)")
     p.add_argument("--skip-model", action="store_true", help="skip steps that call Bedrock (result is PARTIAL, exit code 4)")
     args = p.parse_args(argv)
     parts = urllib.parse.urlsplit(args.api_url)

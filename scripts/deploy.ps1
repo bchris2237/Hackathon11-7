@@ -29,6 +29,11 @@
 .PARAMETER AllowMissingOptimizer
   Permit packaging when optimizer/api.py does not exist. The deployed /optimize, /simulate and /explain will then answer
   503. For an early thin-slice deploy only; the default is to refuse, because the live workflow needs the optimizer.
+.PARAMETER EnableProfiles
+  Create the optional DynamoDB table (fictional demo profiles only) and grant the function PutItem/GetItem on it.
+  OFF by default. Redeploying later WITHOUT this switch deletes the table and everything in it.
+.PARAMETER ProfileTtlSeconds
+  How long a stored profile lives, 300 to 604800. Default 86400 (one day). Only used with -EnableProfiles.
 .PARAMETER Profile
   Optional AWS CLI profile name.
 .PARAMETER Yes
@@ -52,6 +57,8 @@ param(
   [string]$BedrockResourceArns,
   [string]$ReservedConcurrency = "5",
   [switch]$AllowMissingOptimizer,
+  [switch]$EnableProfiles,
+  [string]$ProfileTtlSeconds = "86400",
   [string]$Profile,
   [switch]$Yes,
   [switch]$Teardown
@@ -157,6 +164,14 @@ if ($AllowedOrigin -match "\*" -or $AllowedOrigin -notmatch "^https://") { Fail 
 if ($ReservedConcurrency -eq "-1") {
   Write-Host "WARNING: -ReservedConcurrency -1 removes the hard ceiling on parallel invocations (and so on model spend)." -ForegroundColor Yellow
 }
+if ($ProfileTtlSeconds -notmatch "^[0-9]+$" -or [int64]$ProfileTtlSeconds -lt 300 -or [int64]$ProfileTtlSeconds -gt 604800) {
+  Fail "-ProfileTtlSeconds must be a whole number from 300 to 604800."
+}
+if ($EnableProfiles) {
+  Write-Host "NOTE: -EnableProfiles creates a DynamoDB table for FICTIONAL demo data only (never real people or real businesses)." -ForegroundColor Yellow
+} else {
+  Write-Host "NOTE: profiles are OFF. If this stack already has a profiles table, this deploy DELETES the table and all its data." -ForegroundColor Yellow
+}
 $commit = (& git -C $Root rev-parse --short=12 HEAD).Trim()
 $dirty = (& git -C $Root status --porcelain | Measure-Object).Count
 if ($dirty -gt 0) { Write-Host "WARNING: the working tree has $dirty uncommitted change(s); the deployed commit id will not describe exactly what was built." -ForegroundColor Yellow }
@@ -168,7 +183,9 @@ $overrides = @(
   "BedrockModelId=$BedrockModelId",
   "BedrockResourceArns=$BedrockResourceArns",
   "CommitSha=$commit",
-  "ReservedConcurrency=$ReservedConcurrency"
+  "ReservedConcurrency=$ReservedConcurrency",
+  "EnableProfiles=$(if ($EnableProfiles) { 'true' } else { 'false' })",
+  "ProfileTtlSeconds=$ProfileTtlSeconds"
 )
 $deployArgs = @(
   "deploy", "-t", (Join-Path $Root ".aws-sam\build\template.yaml"),
@@ -183,5 +200,6 @@ Say "== 7. Stack outputs"
 Run "aws" (@("cloudformation", "describe-stacks", "--stack-name", $StackName, "--region", $Region,
   "--query", "Stacks[0].Outputs[].[OutputKey,OutputValue]", "--output", "table") + $profileArgs)
 Say ""
-Say "Next: python scripts\smoke.py --api-url <ApiUrl> --expect-commit $commit --origin $AllowedOrigin"
+$smokeProfiles = if ($EnableProfiles) { " --profiles" } else { "" }
+Say "Next: python scripts\smoke.py --api-url <ApiUrl> --expect-commit $commit --origin $AllowedOrigin$smokeProfiles"
 Say "Then set VITE_API_BASE_URL (ApiUrl) and VITE_DATA_MODE=live in Amplify and redeploy the frontend. See docs/deployment.md."
