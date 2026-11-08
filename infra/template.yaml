@@ -102,9 +102,45 @@ Parameters:
     MinValue: 300
     MaxValue: 604800
     Description: How long a stored profile is kept (5 minutes to 7 days). DynamoDB removes expired items eventually, up to 48 hours late; the API ignores them as soon as they expire.
+
+  ClientRatePerMinute:
+    Type: Number
+    Default: 60
+    MinValue: 1
+    MaxValue: 600
+    Description: >-
+      Requests per minute one client address may make to one Lambda container (token bucket, backend/middleware.py). It is a per-container
+      fairness limit, NOT a global one: the global limits are the API throttles above and reserved concurrency.
+
+  ClientBurst:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 100
+    Description: Requests one client address may send back to back before the per-minute rate applies.
+
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 100000
+    Description: >-
+      OPTIONAL. A monthly cost budget in USD for the WHOLE ACCOUNT (AWS Budgets cannot be scoped to this stack without cost-allocation tags).
+      0 creates no budget. A budget SENDS ALERTS; it does not stop spending. Needs BudgetAlertEmail as well.
+
+  BudgetAlertEmail:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+$'
+    ConstraintDescription: An e-mail address, or empty for no budget alert.
+    Description: Where budget alerts are sent. Only used when MonthlyBudgetUsd is above 0.
+
 Conditions:
   HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, "-1"]]
   ProfilesEnabled: !Equals [!Ref EnableProfiles, "true"]
+  BudgetEnabled: !And
+    - !Not [!Equals [!Ref MonthlyBudgetUsd, 0]]
+    - !Not [!Equals [!Ref BudgetAlertEmail, ""]]
 
 Globals:
   Function:
@@ -215,6 +251,8 @@ Resources:
           BEDROCK_STRUCTURED_OUTPUT: "off"
           PROFILE_TABLE: !If [ProfilesEnabled, !Ref ProfilesTable, !Ref "AWS::NoValue"]
           PROFILE_TTL_SECONDS: !Ref ProfileTtlSeconds
+          CLIENT_RATE_PER_MINUTE: !Ref ClientRatePerMinute
+          CLIENT_BURST: !Ref ClientBurst
       Events:
         AnyRoute:
           Type: HttpApi
@@ -242,6 +280,45 @@ Resources:
       DefaultRouteSettings:
         ThrottlingRateLimit: !Ref ThrottleRatePerSecond
         ThrottlingBurstLimit: !Ref ThrottleBurst
+
+  # ------------------------------------------------------------------------------- optional budget alert
+  # Created only when MonthlyBudgetUsd > 0 AND BudgetAlertEmail is set. Account-wide. It e-mails; it does not cap or stop anything.
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: BudgetEnabled
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-monthly-alert"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 50
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetAlertEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetAlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetAlertEmail
 
 Outputs:
   ApiUrl:

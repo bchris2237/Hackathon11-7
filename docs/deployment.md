@@ -157,6 +157,34 @@ aws logs filter-log-events --log-group-name <LogGroupName> --region <region> --f
 Log lines hold method, route template, status, duration, request id and error code only. They never contain request bodies, descriptions, scenarios, model output or credentials
 (this is tested). Copy only those lines into the compliance record. The smoke script prints the matching `X-Request-Id` values.
 
+### 5b. Security limits and the budget alert (B8)
+
+What the API refuses, and the status a client sees:
+
+| Request | Answer |
+|---|---|
+| `POST`/`PUT` carrying an `Origin` header that is not exactly one of `ALLOWED_ORIGIN` | `403 ORIGIN_NOT_ALLOWED`, nothing is processed |
+| Body not declared `application/json` (for example `text/plain` or a form post) | `415 UNSUPPORTED_MEDIA_TYPE` |
+| Body over 32 KiB | `413 PAYLOAD_TOO_LARGE`, before parsing |
+| Too long a text, too many items, minutes over 1,000,000, unknown fields | `422 VALIDATION_ERROR` with field paths only |
+| Control or direction-override characters in a string | `422 VALIDATION_ERROR` with the field path |
+| More than `CLIENT_RATE_PER_MINUTE` (default 60) requests per minute from one address, burst `CLIENT_BURST` (default 30) | `429 THROTTLED` with `Retry-After` |
+
+Limits, in the order they apply, with where each one lives:
+
+1. API Gateway throttle (`ThrottleRatePerSecond`, `ThrottleBurst`): global, enforced by AWS.
+2. Lambda reserved concurrency (`ReservedConcurrency`): global, enforced by AWS.
+3. `CLIENT_RATE_PER_MINUTE` / `CLIENT_BURST`: per client address but **per container**. Each warm Lambda container keeps its own counters, so this limit stops one client monopolising a container; it is not a global quota and it is not authentication.
+4. `MAX_IN_FLIGHT`: most model or solver calls one container runs at once.
+
+An `Origin` header is easy to forge outside a browser, so the origin check protects people using browsers; it is not authentication.
+
+**Budget alert.** Add `-MonthlyBudgetUsd 20 -BudgetAlertEmail you@example.com` to the deploy command to create an AWS Budget that e-mails you at 50% and 80% of actual and 100% of forecast spend.
+The budget covers the **whole account**, because a budget cannot be limited to this stack without cost-allocation tags. A budget is an alert, **not a spending cap**: it does not stop or throttle anything, and billing data can lag by hours.
+Your role needs permission to create budgets; if it has none, create the same alert by hand under Billing and Cost Management, Budgets (section 2b). The hard limits remain reserved concurrency, the API throttles, the 32 KiB cap and the per-call token cap.
+
+Logs: every log line passes through a redaction step (AWS key shapes, labelled secrets, bearer tokens, private keys, e-mail addresses, long token-like strings) and tracebacks are cut to the exception type. This is pattern based and best effort; the code also never writes request bodies or model text to logs.
+
 ### 5a. Optional: stored profiles (B7)
 
 Off by default. Add `-EnableProfiles` (and optionally `-ProfileTtlSeconds <300..604800>`, default 86400) to the deploy command to create one

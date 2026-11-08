@@ -112,7 +112,7 @@ def test_real_http_server_serves_health_and_labels_mode():
         _, no_origin_headers, _ = _get(f"{base}/health")
         assert "Access-Control-Allow-Origin" not in no_origin_headers
 
-        status, _, body = _get(f"{base}/optimize", method="POST", data=b'{"scenario": {}}')
+        status, _, body = _get(f"{base}/optimize", method="POST", data=b'{"scenario": {}}', headers={"Content-Type": "application/json"})
         assert status == 503 and body["error"]["code"] == "NOT_IMPLEMENTED"
 
         status, headers, _ = _get(f"{base}/optimize", method="OPTIONS", headers={"Origin": "http://localhost:5173"})

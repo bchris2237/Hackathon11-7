@@ -205,6 +205,15 @@ def run(args: argparse.Namespace, report: Report) -> None:
         missing["businesses"][0]["estimates"] = []
         r422 = call("POST", f"{api}/confirm", body={"scenario": missing})
         report.add("PASS" if r422.status == 422 and error_code(r422) == "MISSING_BASELINE" else "FAIL", "missing baseline is 422 MISSING_BASELINE", f"HTTP {r422.status}, code {error_code(r422)}")
+        # B8 hardening. Both are refused before any work is done, so they cost nothing.
+        hostile = call("POST", f"{api}/confirm", body={"scenario": canonical}, headers={"Origin": EVIL_ORIGIN})
+        report.add("PASS" if hostile.status == 403 and error_code(hostile) == "ORIGIN_NOT_ALLOWED" and "access-control-allow-origin" not in hostile.headers else "FAIL", "a POST from an unlisted origin is refused with 403", f"HTTP {hostile.status}, code {error_code(hostile)}, request {hostile.request_id}")
+        plain = call("POST", f"{api}/confirm", body=json.dumps({"scenario": canonical}).encode(), headers={"Content-Type": "text/plain"})
+        report.add("PASS" if plain.status == 415 and error_code(plain) == "UNSUPPORTED_MEDIA_TYPE" else "FAIL", "a text/plain body is refused with 415", f"HTTP {plain.status}, code {error_code(plain)}")
+        hardened = call("GET", f"{api}/health")
+        needed = {"x-content-type-options": "nosniff", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer"}
+        missing = [k for k, v in needed.items() if hardened.headers.get(k) != v]
+        report.add("PASS" if not missing and "default-src 'none'" in hardened.headers.get("content-security-policy", "") else "FAIL", "security headers are present", f"missing={missing}")
 
     step("error envelope", envelope)
 

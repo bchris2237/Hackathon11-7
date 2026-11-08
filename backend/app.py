@@ -45,6 +45,16 @@ from pydantic import BaseModel, ValidationError
 
 from backend.config import ConfigError, Settings, load_settings
 from backend.confirmation import confirm_scenario, validate_scenario
+from backend.middleware import (
+    ClientRateLimiter,
+    check_content_type,
+    check_origin,
+    check_text_safety,
+    client_label,
+    install_log_redaction,
+    rate_limited,
+    security_headers,
+)
 from backend.optimization import broken_optimizer_adapter, load_optimizer_function, make_optimize_adapter
 from backend.errors import (
     ApiError,
@@ -94,6 +104,9 @@ class Request:
     declared_length: int | None = None
     # A problem the transport already found (bad Content-Length, chunked body, read timeout).
     transport_error: ApiError | None = None
+    # The caller's network address as the transport saw it (API Gateway's sourceIp, or the local socket). Used only
+    # as a rate-limit key and as a hashed log tag; never logged or returned as is.
+    client: str = ""
 
 
 @dataclass(frozen=True)
@@ -281,8 +294,11 @@ def parse_json_body(body: bytes) -> Any:
 # --------------------------------------------------------------------------- the app
 class App:
     def __init__(self, settings: Settings, adapters: Adapters | None = None) -> None:
+        install_log_redaction()  # idempotent; covers every logger in the process
         self.settings = settings
         self.adapters = adapters if adapters is not None else Adapters()
+        # Per-client limit (per container: see backend/middleware.py for what that does and does not guarantee).
+        self._limiter = ClientRateLimiter(settings.client_rate_per_minute, settings.client_burst)
         # Concurrency cap. A slot is held until the adapter thread really finishes, so work
         # abandoned after a timeout still counts and cannot pile up without bound.
         self._slots = threading.BoundedSemaphore(settings.max_in_flight)
@@ -369,6 +385,17 @@ class App:
             )
             return Response(200, health.model_dump(mode="json"))
 
+        # B8 gates, cheapest first, before any body is read or parsed. GET routes only read data and a browser
+        # cannot read a cross-origin answer without CORS headers, so the origin gate covers methods that change state
+        # or call a model.
+        if request.method != "GET":
+            check_origin(request.headers, self.settings.allowed_origins)
+            check_content_type(request.headers)
+        wait = self._limiter.check(request.client or "unknown")
+        if wait is not None:
+            log.info(json.dumps({"event": "client_rate_limited", "requestId": request_id, "client": client_label(request.client)}))
+            raise rate_limited(wait)
+
         if request.transport_error is not None:
             raise request.transport_error
         if max(len(request.body), request.declared_length or 0) > MAX_BODY_BYTES:
@@ -386,6 +413,7 @@ class App:
         args: list[Any] = [profile_id] if profile_id is not None else []
         if endpoint.request_model is not None:
             data = parse_json_body(request.body)
+            check_text_safety(data)
             try:
                 model = endpoint.request_model.model_validate(data)
             except ValidationError as exc:
@@ -464,6 +492,7 @@ class App:
                 "X-Request-Id": request_id,
                 "X-TradeMind-Mode": self.settings.mode,
                 "Vary": "Origin",
+                **security_headers(),
             }
         )
         origin = request.headers.get("origin")
@@ -518,7 +547,9 @@ class App:
                 raise malformed_json("Request body is not valid UTF-8.") from None
 
         request_id = context.get("requestId") if isinstance(context, dict) else None
-        return Request(method, path, headers, body, str(request_id or fallback_id))
+        source_ip = http.get("sourceIp")
+        client = source_ip[:64] if isinstance(source_ip, str) else ""
+        return Request(method, path, headers, body, str(request_id or fallback_id), client=client)
 
 
 # --------------------------------------------------------------------------- Lambda entry point

@@ -21,6 +21,11 @@ DEFAULT_PROFILE_TTL_SECONDS = 86400  # 24 hours
 MIN_PROFILE_TTL_SECONDS = 300
 MAX_PROFILE_TTL_SECONDS = 604800  # 7 days
 _TABLE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,255}$")
+# Per-client request limit (B8). Per container: the global limits are API Gateway throttles and reserved concurrency.
+DEFAULT_CLIENT_RATE_PER_MINUTE = 60
+MAX_CLIENT_RATE_PER_MINUTE = 600
+DEFAULT_CLIENT_BURST = 30
+MAX_CLIENT_BURST = 100
 
 
 class ConfigError(Exception):
@@ -40,6 +45,20 @@ class Settings:
     # Optional profile persistence (B7). None = disabled: /profiles answers 503 PERSISTENCE_DISABLED.
     profile_table: str | None = None
     profile_ttl_seconds: int = DEFAULT_PROFILE_TTL_SECONDS
+    # Requests one client address may make per minute, and how many at once (token bucket). B8.
+    client_rate_per_minute: int = DEFAULT_CLIENT_RATE_PER_MINUTE
+    client_burst: int = DEFAULT_CLIENT_BURST
+
+
+def _bounded_int(env: Mapping[str, str], name: str, default: int, low: int, high: int) -> int:
+    raw = (env.get(name) or str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be an integer.") from exc
+    if not low <= value <= high:
+        raise ConfigError(f"{name} must be {low}..{high}, got {value}.")
+    return value
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -93,6 +112,16 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     )
     if not origins or "*" in origins:
         raise ConfigError("ALLOWED_ORIGIN must list exact origins (comma separated); '*' is not allowed.")
+    from backend.middleware import validate_origin_setting
+
+    for origin in origins:
+        try:
+            validate_origin_setting(origin, live=(mode == "live"))
+        except ValueError as exc:
+            raise ConfigError(f"ALLOWED_ORIGIN is invalid: {exc}.") from None
+
+    client_rate = _bounded_int(env, "CLIENT_RATE_PER_MINUTE", DEFAULT_CLIENT_RATE_PER_MINUTE, 1, MAX_CLIENT_RATE_PER_MINUTE)
+    client_burst = _bounded_int(env, "CLIENT_BURST", DEFAULT_CLIENT_BURST, 1, MAX_CLIENT_BURST)
 
     return Settings(
         mode=mode,
@@ -104,4 +133,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_in_flight=max_in_flight,
         profile_table=profile_table,
         profile_ttl_seconds=profile_ttl,
+        client_rate_per_minute=client_rate,
+        client_burst=client_burst,
     )

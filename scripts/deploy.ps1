@@ -34,6 +34,11 @@
   OFF by default. Redeploying later WITHOUT this switch deletes the table and everything in it.
 .PARAMETER ProfileTtlSeconds
   How long a stored profile lives, 300 to 604800. Default 86400 (one day). Only used with -EnableProfiles.
+.PARAMETER MonthlyBudgetUsd
+  Optional. A monthly ACCOUNT-WIDE cost budget in USD that e-mails you at 50% and 80% of actual and 100% of forecast spend.
+  Needs -BudgetAlertEmail. 0 (default) creates no budget. A budget is an alert, not a spending cap.
+.PARAMETER BudgetAlertEmail
+  Where budget alerts go. Only used with -MonthlyBudgetUsd above 0.
 .PARAMETER Profile
   Optional AWS CLI profile name.
 .PARAMETER Yes
@@ -59,6 +64,8 @@ param(
   [switch]$AllowMissingOptimizer,
   [switch]$EnableProfiles,
   [string]$ProfileTtlSeconds = "86400",
+  [string]$MonthlyBudgetUsd = "0",
+  [string]$BudgetAlertEmail = "",
   [string]$Profile,
   [switch]$Yes,
   [switch]$Teardown
@@ -167,6 +174,9 @@ if ($ReservedConcurrency -eq "-1") {
 if ($ProfileTtlSeconds -notmatch "^[0-9]+$" -or [int64]$ProfileTtlSeconds -lt 300 -or [int64]$ProfileTtlSeconds -gt 604800) {
   Fail "-ProfileTtlSeconds must be a whole number from 300 to 604800."
 }
+if ($MonthlyBudgetUsd -notmatch "^[0-9]{1,6}$") { Fail "-MonthlyBudgetUsd must be a whole number of US dollars (0 = no budget)." }
+if ($BudgetAlertEmail -and $BudgetAlertEmail -notmatch "^[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+$") { Fail "-BudgetAlertEmail is not a valid e-mail address." }
+if ([int64]$MonthlyBudgetUsd -gt 0 -and -not $BudgetAlertEmail) { Fail "-MonthlyBudgetUsd needs -BudgetAlertEmail so the alert has somewhere to go." }
 if ($EnableProfiles) {
   Write-Host "NOTE: -EnableProfiles creates a DynamoDB table for FICTIONAL demo data only (never real people or real businesses)." -ForegroundColor Yellow
 } else {
@@ -185,7 +195,9 @@ $overrides = @(
   "CommitSha=$commit",
   "ReservedConcurrency=$ReservedConcurrency",
   "EnableProfiles=$(if ($EnableProfiles) { 'true' } else { 'false' })",
-  "ProfileTtlSeconds=$ProfileTtlSeconds"
+  "ProfileTtlSeconds=$ProfileTtlSeconds",
+  "MonthlyBudgetUsd=$MonthlyBudgetUsd",
+  "BudgetAlertEmail=$BudgetAlertEmail"
 )
 $deployArgs = @(
   "deploy", "-t", (Join-Path $Root ".aws-sam\build\template.yaml"),

@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from backend.app import MAX_BODY_BYTES, App, Request, default_adapters
 from backend.config import ConfigError, load_settings
 from backend.errors import ApiError, malformed_json
+from backend.middleware import install_log_redaction
 
 SOCKET_TIMEOUT_SECONDS = 10.0  # bounds a client that connects and then stalls
 _BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
@@ -55,7 +56,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                             error = malformed_json("Timed out reading the request body.")
                     # Over the limit: the body is deliberately left unread. App answers 413
                     # from `declared_length`, and the connection is closed after the response.
-            return Request(self.command, self.path.split("?", 1)[0], headers, body, request_id, declared, error)
+            return Request(
+                self.command, self.path.split("?", 1)[0], headers, body, request_id, declared, error,
+                client=str(self.client_address[0]),
+            )
 
         def _dispatch(self) -> None:
             response = app.handle(self._read_request())
@@ -79,6 +83,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
 
 def main() -> int:
+    install_log_redaction()
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     try:
         settings = load_settings()

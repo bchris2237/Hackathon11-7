@@ -252,7 +252,7 @@ def test_the_stack_is_live_mode_only_and_never_sets_reserved_or_credential_names
     assert set(env) == {
         "APP_MODE", "ALLOWED_ORIGIN", "BEDROCK_MODEL_ID", "COMMIT_SHA", "MAX_IN_FLIGHT",
         "ADAPTER_TIMEOUT_SECONDS", "BEDROCK_MAX_OUTPUT_TOKENS", "BEDROCK_READ_TIMEOUT_SECONDS", "BEDROCK_STRUCTURED_OUTPUT",
-        "PROFILE_TABLE", "PROFILE_TTL_SECONDS",
+        "PROFILE_TABLE", "PROFILE_TTL_SECONDS", "CLIENT_RATE_PER_MINUTE", "CLIENT_BURST",
     }
     assert "PROFILE_TABLE" not in environment_for(template), "profile storage is OFF by default: no table name reaches the function"
 
