@@ -442,19 +442,17 @@ def solve(scenario: Scenario) -> Result:
         )
 
     # Infeasible — even self-assignment failed
+    # Use explain_infeasibility for truthful constraint diagnostics
+    from optimizer.feasibility import explain_infeasibility  # lazy to avoid circular import
+    report = explain_infeasibility(scenario)
+    reasons = [Reason(code="INFEASIBLE", message=report.summary())]
     return Result(
         schemaVersion="1",
         status=ResultStatus.INFEASIBLE,
         assignments=[],
         businessMetrics=None,
         totals=None,
-        reasons=[Reason(
-            code="INFEASIBLE",
-            message=(
-                "No valid assignment exists that satisfies capacity and "
-                "no-worse-off constraints for every business, including self-assignment."
-            ),
-        )],
+        reasons=reasons,
         certificate=None,
     )
 

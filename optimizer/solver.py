@@ -2,14 +2,16 @@
 TradeMind optimizer — public API (stable import surface for the backend).
 Owner: Developer 1.
 
-All implementation lives in optimizer.engine.
-Do not import engine directly from outside the optimizer package.
+All implementation lives in optimizer.engine and optimizer.feasibility.
+Do not import engine or feasibility directly from outside the optimizer package.
 
-Public surface (A1 + A2):
+Public surface (A1 + A2 + A3):
   solve(scenario)                  → Result
   optimize(scenario)               → Result   [A2 alias, preferred by backend]
   enumerate_assignments(scenario)  → list[dict[str,str]]   [A2]
   verify(scenario, result)         → Result
+  validate_assignment(scenario, assignments) → list[AssignmentViolation]   [A3]
+  explain_infeasibility(scenario)            → InfeasibilityReport          [A3]
 """
 from contracts.models import Result, Scenario
 
@@ -17,6 +19,12 @@ from optimizer.engine import enumerate_assignments as _enumerate_assignments
 from optimizer.engine import optimize as _optimize
 from optimizer.engine import solve as _solve
 from optimizer.engine import verify as _verify
+from optimizer.feasibility import (
+    AssignmentViolation,
+    InfeasibilityReport,
+    explain_infeasibility as _explain_infeasibility,
+    validate_assignment as _validate_assignment,
+)
 
 
 def solve(scenario: Scenario) -> Result:
@@ -61,3 +69,48 @@ def verify(scenario: Scenario, result: Result) -> Result:
     Never trust client-supplied arithmetic.
     """
     return _verify(scenario, result)
+
+
+def validate_assignment(
+    scenario: Scenario,
+    assignments: list,
+) -> list[AssignmentViolation]:
+    """
+    Validate a fully specified assignment list against a confirmed scenario.
+
+    Returns a (possibly empty) list of AssignmentViolation objects.
+    Empty list means the assignment satisfies all constraints.
+    Does NOT raise — the caller decides how to handle violations.
+
+    Checks: coverage, known IDs, service compatibility, correct duration,
+            capacity constraints, and no-worse-off (netSavings >= 0).
+    """
+    return _validate_assignment(scenario, assignments)
+
+
+def explain_infeasibility(scenario: Scenario) -> InfeasibilityReport:
+    """
+    Analyse a scenario and return a structured InfeasibilityReport.
+
+    Reports observed constraint violations based on self-assignment analysis:
+      - capacity_violations: businesses where self-assignment exceeds capacity
+      - savings_violations:  businesses where self-assignment yields negative net savings
+      - unsupported_services: deliverables whose owner has no estimate (MISSING_BASELINE)
+
+    Does NOT claim to compute a minimal unsatisfiable core.
+    Used by the backend /explain route and INFEASIBLE result diagnostics.
+    """
+    return _explain_infeasibility(scenario)
+
+
+# Re-export types so backend can use them without importing feasibility directly
+__all__ = [
+    "solve",
+    "optimize",
+    "enumerate_assignments",
+    "verify",
+    "validate_assignment",
+    "explain_infeasibility",
+    "AssignmentViolation",
+    "InfeasibilityReport",
+]
