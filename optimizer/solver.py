@@ -2,16 +2,18 @@
 TradeMind optimizer — public API (stable import surface for the backend).
 Owner: Developer 1.
 
-All implementation lives in optimizer.engine and optimizer.feasibility.
-Do not import engine or feasibility directly from outside the optimizer package.
+All implementation lives in optimizer.engine, optimizer.feasibility, optimizer.metrics.
+Do not import those modules directly from outside the optimizer package.
 
-Public surface (A1 + A2 + A3):
+Public surface (A1 + A2 + A3 + A4):
   solve(scenario)                  → Result
   optimize(scenario)               → Result   [A2 alias, preferred by backend]
-  enumerate_assignments(scenario)  → list[dict[str,str]]   [A2]
+  enumerate_assignments(scenario)  → list[dict[str,str]]
   verify(scenario, result)         → Result
-  validate_assignment(scenario, assignments) → list[AssignmentViolation]   [A3]
-  explain_infeasibility(scenario)            → InfeasibilityReport          [A3]
+  validate_assignment(scenario, assignments) → list[AssignmentViolation]
+  explain_infeasibility(scenario)            → InfeasibilityReport
+  compute_metrics(scenario, assignment_map)  → (list[BusinessMetrics], Totals)  [A4]
+  rank_allocation(candidates)                → list[ScoredCandidate]              [A4]
 """
 from contracts.models import Result, Scenario
 
@@ -25,7 +27,16 @@ from optimizer.feasibility import (
     explain_infeasibility as _explain_infeasibility,
     validate_assignment as _validate_assignment,
 )
+from optimizer.metrics import (
+    ScoredCandidate,
+    compute_metrics as _compute_metrics,
+    rank_allocation as _rank_allocation,
+)
 
+
+# ---------------------------------------------------------------------------
+# A1 — solve and verify
+# ---------------------------------------------------------------------------
 
 def solve(scenario: Scenario) -> Result:
     """
@@ -37,6 +48,22 @@ def solve(scenario: Scenario) -> Result:
     """
     return _solve(scenario)
 
+
+def verify(scenario: Scenario, result: Result) -> Result:
+    """
+    Independently recompute the result from scenario + assignment list.
+    Returns a fresh Result with a new certificate.
+    Raises ValueError if the supplied assignments are inconsistent.
+
+    Call this before passing computed values to Bedrock (/explain).
+    Never trust client-supplied arithmetic.
+    """
+    return _verify(scenario, result)
+
+
+# ---------------------------------------------------------------------------
+# A2 — optimize alias and enumerate_assignments
+# ---------------------------------------------------------------------------
 
 def optimize(scenario: Scenario) -> Result:
     """
@@ -59,17 +86,9 @@ def enumerate_assignments(scenario: Scenario) -> list[dict[str, str]]:
     return _enumerate_assignments(scenario)
 
 
-def verify(scenario: Scenario, result: Result) -> Result:
-    """
-    Independently recompute the result from scenario + assignment list.
-    Returns a fresh Result with a new certificate.
-    Raises ValueError if the supplied assignments are inconsistent.
-
-    Call this before passing computed values to Bedrock (/explain).
-    Never trust client-supplied arithmetic.
-    """
-    return _verify(scenario, result)
-
+# ---------------------------------------------------------------------------
+# A3 — validate_assignment and explain_infeasibility
+# ---------------------------------------------------------------------------
 
 def validate_assignment(
     scenario: Scenario,
@@ -103,7 +122,48 @@ def explain_infeasibility(scenario: Scenario) -> InfeasibilityReport:
     return _explain_infeasibility(scenario)
 
 
-# Re-export types so backend can use them without importing feasibility directly
+# ---------------------------------------------------------------------------
+# A4 — compute_metrics and rank_allocation
+# ---------------------------------------------------------------------------
+
+def compute_metrics(
+    scenario: Scenario,
+    assignment_map: dict[str, str],
+) -> tuple:
+    """
+    Compute per-business metrics and aggregate totals for a specific assignment map.
+
+    Returns (list[BusinessMetrics] sorted by businessId, Totals).
+    Raises MissingBaselineError if any owner lacks an estimate.
+    Raises KeyError if any ID in assignment_map is unknown.
+
+    All arithmetic is integer minutes.
+    Labor burden is NOT monetary utility — savings are minutes of effort, not profit.
+    """
+    return _compute_metrics(scenario, assignment_map)
+
+
+def rank_allocation(candidates: list) -> list[ScoredCandidate]:
+    """
+    Score and rank a list of (assignment_map, metrics, totals) candidates.
+
+    Filters out candidates where any business has netSavingsMinutes < 0,
+    even if the total net savings are positive.
+
+    Remaining candidates sorted best-first by:
+      1. Ascending total effortMinutes
+      2. Ascending max effort/baseline ratio (integer cross-multiplication)
+      3. Ascending lexicographic (deliverableId, providerId) pairs
+
+    Returns list[ScoredCandidate], best first.  Empty list if none survive filter.
+    """
+    return _rank_allocation(candidates)
+
+
+# ---------------------------------------------------------------------------
+# Re-exports for backend convenience
+# ---------------------------------------------------------------------------
+
 __all__ = [
     "solve",
     "optimize",
@@ -113,4 +173,7 @@ __all__ = [
     "explain_infeasibility",
     "AssignmentViolation",
     "InfeasibilityReport",
+    "compute_metrics",
+    "rank_allocation",
+    "ScoredCandidate",
 ]
