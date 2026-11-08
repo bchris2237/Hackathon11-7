@@ -17,11 +17,6 @@
     outline-offset: 2px;
   }
 
-  /* On a dark background the blue ring is too faint (under 3:1); use white there. */
-  .on-dark :focus-visible {
-    outline-color: #ffffff;
-  }
-
   /* Windows high-contrast / forced-colors: let the system colour the ring. */
   @media (forced-colors: active) {
     :focus-visible {

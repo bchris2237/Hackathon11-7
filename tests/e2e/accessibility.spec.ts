@@ -325,22 +325,21 @@ async function ringContrast(page: Page, target: Locator) {
   });
 }
 
-test("focus ring has at least 3:1 contrast against its background (light card, amber banner, green banner)", async ({ page }) => {
-  await reach(page, "sample");
+test("focus ring has at least 3:1 contrast against its background (white card, mismatch alert, page background)", async ({ page }) => {
+  // "live-mode" state: the app is in fixture mode and the stubbed backend reports live, so the mismatch alert is on screen.
+  await reach(page, "live-mode");
   const onCard = await ringContrast(page, page.getByRole("button", { name: "Load fictional sample" }));
   expect(onCard.style).toBe("solid");
   expect(onCard.width).toBeGreaterThanOrEqual(3);
   expect(contrast(onCard.ring, onCard.background)).toBeGreaterThanOrEqual(3);
 
-  const onAmber = await ringContrast(page, page.getByRole("button", { name: "Switch to live mode" }));
-  expect(contrast(onAmber.ring, onAmber.background)).toBeGreaterThanOrEqual(3);
+  const onAlert = await ringContrast(page, page.getByRole("button", { name: "Switch the app to live mode" }));
+  expect(onAlert.background.slice(0, 3)).not.toEqual([255, 255, 255]); // sits on the pale red alert
+  expect(contrast(onAlert.ring, onAlert.background)).toBeGreaterThanOrEqual(3);
 
-  await page.getByRole("button", { name: "Switch to live mode" }).click();
-  const onGreen = await ringContrast(page, page.getByRole("button", { name: "Switch to fixture mode" }));
-  expect(onGreen.background.slice(0, 3)).not.toEqual([255, 255, 255]);
-  expect(contrast(onGreen.ring, onGreen.background)).toBeGreaterThanOrEqual(3);
+  const onPage = await ringContrast(page, page.getByRole("button", { name: "Check the backend again" }));
+  expect(contrast(onPage.ring, onPage.background)).toBeGreaterThanOrEqual(3);
 });
-
 test("graph alternative: the text list mirrors every arrow and the graph has a name", async ({ page }) => {
   await reach(page, "optimized");
   const result = page.getByTestId("optimize-result");
