@@ -8,7 +8,8 @@
     "skipLibCheck": true,
     "types": [],
     "paths": {
-      "@playwright/test": ["../../frontend/node_modules/@playwright/test"]
+      "@playwright/test": ["../../frontend/node_modules/@playwright/test"],
+      "@axe-core/playwright": ["../../frontend/node_modules/@axe-core/playwright"]
     }
   },
   "include": ["*.ts"]

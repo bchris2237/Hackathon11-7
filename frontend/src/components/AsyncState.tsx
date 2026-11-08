@@ -177,16 +177,27 @@ interface AsyncErrorProps {
   /** Deliberate retry. Shown only when retrying can help, and disabled while the server's wait runs. */
   onRetry?: () => void;
   testId?: string;
+  /**
+   * Move keyboard focus to the message when it appears, so the user lands on what went wrong.
+   * Turn off for errors nobody asked for (the automatic health check on page load).
+   */
+  focusOnMount?: boolean;
 }
 
 /** The single error view. Always a role="alert"; never replaces or hides what the user typed. */
-export function AsyncError({ error, prefix, suffix, manualHint, onRetry, testId }: AsyncErrorProps) {
+export function AsyncError({ error, prefix, suffix, manualHint, onRetry, testId, focusOnMount = true }: AsyncErrorProps) {
   const view = classifyError(error);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusOnMount) box.current?.focus();
+  }, [error, focusOnMount]);
   const left = useCountdown(view.retryAfterSeconds, error);
   const line = [prefix, view.message, suffix].filter(Boolean).join(" ");
   const waiting = left > 0;
   return (
     <div
+      ref={box}
+      tabIndex={-1}
       role="alert"
       data-testid={testId ?? "async-error"}
       data-kind={view.kind}
@@ -204,9 +215,11 @@ export function AsyncError({ error, prefix, suffix, manualHint, onRetry, testId 
       {onRetry && view.retryable && (
         <button
           type="button"
-          onClick={onRetry}
-          disabled={waiting}
-          className="mt-2 rounded border border-red-700 bg-white px-3 py-1 font-medium text-red-900 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() => {
+            if (!waiting) onRetry();
+          }}
+          aria-disabled={waiting}
+          className="mt-2 min-h-8 rounded border border-red-700 bg-white px-3 py-1 font-medium text-red-900 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
         >
           {waiting ? `Try again in ${formatWait(left)}` : "Try again"}
         </button>

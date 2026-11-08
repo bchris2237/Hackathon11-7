@@ -56,7 +56,7 @@ export default function BusinessForm({ index, business, errors, onChange }: Prop
   const set = (patch: BusinessPatch) => onChange(index, patch);
 
   return (
-    <fieldset className="rounded border border-slate-300 p-4">
+    <fieldset className="min-w-0 rounded border border-slate-300 p-4">
       <legend className="px-1 text-base font-semibold">Business {n}</legend>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={`Business ${n} ID`} hint="Lowercase slug, e.g. devco" error={errorsFor(errors, `${p}.id`)}>

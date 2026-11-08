@@ -60,11 +60,16 @@ export default function OptimizePanel({ client, confirmed, version, result, onRe
       <button
         type="button"
         onClick={run}
-        disabled={!confirmed || status.kind === "pending"}
-        className="rounded bg-blue-800 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+        disabled={!confirmed}
+        aria-disabled={status.kind === "pending"}
+        className="rounded bg-blue-800 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400 aria-disabled:cursor-not-allowed aria-disabled:bg-slate-500"
       >
         {status.kind === "pending" ? "Optimizing…" : "Optimize"}
       </button>
+      {/* Announced to screen readers when the result arrives; the button keeps focus. */}
+      <p role="status" className="sr-only" data-testid="optimize-announce">
+        {result && confirmed ? `Optimization finished. ${STATUS_TEXT[result.status]}.` : ""}
+      </p>
       {!confirmed && <EmptyState>Confirm the scenario first. Optimization runs only on a confirmed scenario.</EmptyState>}
       {status.kind === "pending" && <Pending>Calculating the best allocation…</Pending>}
       {status.kind === "error" && (

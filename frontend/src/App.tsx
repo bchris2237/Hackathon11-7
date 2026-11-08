@@ -76,7 +76,7 @@ export default function App() {
         className={
           isFixture
             ? "bg-amber-300 px-4 py-2 text-center text-sm font-semibold text-amber-950"
-            : "bg-emerald-800 px-4 py-2 text-center text-sm font-semibold text-white"
+            : "on-dark bg-emerald-800 px-4 py-2 text-center text-sm font-semibold text-white"
         }
       >
         {isFixture
@@ -85,7 +85,7 @@ export default function App() {
         <button
           type="button"
           onClick={switchMode}
-          className="ml-3 rounded border border-current bg-transparent px-2 py-0.5 text-xs font-medium"
+          className="ml-3 min-h-8 rounded border border-current bg-transparent px-3 py-1 text-xs font-medium"
         >
           {isFixture ? "Switch to live mode" : "Switch to fixture mode"}
         </button>
@@ -100,7 +100,7 @@ export default function App() {
         </div>
       </header>
 
-      <main id="workspace" className="mx-auto max-w-6xl px-4 py-6">
+      <main id="workspace" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 focus:outline-none">
         {config.configError && (
           <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-900">
             {config.configError}
@@ -120,7 +120,7 @@ export default function App() {
         )}
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <section aria-labelledby="inputs-heading" className="rounded border border-slate-200 bg-white p-4">
+          <section aria-labelledby="inputs-heading" className="min-w-0 rounded border border-slate-200 bg-white p-4">
             <h2 id="inputs-heading" className="text-lg font-medium">
               Businesses and scenario
             </h2>
@@ -186,7 +186,7 @@ export default function App() {
             </ul>
           </section>
 
-          <section aria-labelledby="results-heading" className="rounded border border-slate-200 bg-white p-4">
+          <section aria-labelledby="results-heading" className="min-w-0 rounded border border-slate-200 bg-white p-4">
             <h2 id="results-heading" className="text-lg font-medium">
               Results and backend
             </h2>
@@ -234,6 +234,7 @@ export default function App() {
                   prefix="Backend unavailable."
                   onRetry={() => setHealthAttempt((n) => n + 1)}
                   testId="health-error"
+                  focusOnMount={false}
                 />
               )}
             </div>

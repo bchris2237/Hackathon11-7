@@ -47,25 +47,25 @@ export default function Certificate({ result, mode }: Props) {
   const headingId = useId();
   if (result.status === "infeasible") {
     return (
-      <section aria-labelledby={headingId} className="rounded border border-slate-200 p-3" data-testid="certificate">
+      <div role="group" aria-labelledby={headingId} className="rounded border border-slate-200 p-3" data-testid="certificate">
         <h4 id={headingId} className="text-sm font-semibold">Verification certificate</h4>
         <p className="mt-1 text-sm" data-testid="certificate-none">
           None. An infeasible result has no allocation to verify, so no certificate is issued.
         </p>
-      </section>
+      </div>
     );
   }
 
   const checked = result.certificate === null ? null : checkCertificate(result.certificate);
 
   return (
-    <section aria-labelledby={headingId} className="space-y-2 rounded border border-slate-200 p-3" data-testid="certificate">
+    <div role="group" aria-labelledby={headingId} className="space-y-2 rounded border border-slate-200 p-3" data-testid="certificate">
       <h4 id={headingId} className="text-sm font-semibold">Verification certificate</h4>
 
       <p className="text-sm" data-testid="certificate-provenance">
         Source:{" "}
         {mode === "fixture" ? (
-          <strong className="text-amber-900">SIMULATED (fixture mode). Not a live verification.</strong>
+          <strong className="text-amber-900">SIMULATED (fixture mode). Not a live verification</strong>
         ) : (
           <strong>live backend</strong>
         )}
@@ -125,6 +125,6 @@ export default function Certificate({ result, mode }: Props) {
         a signature, not tamper-proof, not an identity credential, and not a guarantee of profit, payment or service
         quality. The digests only help detect whether two runs used different inputs.
       </p>
-    </section>
+    </div>
   );
 }

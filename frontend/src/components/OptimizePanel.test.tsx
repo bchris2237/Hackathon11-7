@@ -135,7 +135,7 @@ describe("NetworkGraph component", () => {
     const items = within(screen.getByTestId("assignment-list")).getAllByRole("listitem");
     expect(items).toHaveLength(3);
     expect(items[0]).toHaveTextContent("DesignCo does d-design (design, 180 min (3 h)) for DevCo.");
-    expect(screen.getByRole("img")).toHaveAccessibleName(/3 exchange arrows/);
+    expect(screen.getByRole("group", { name: /3 exchange arrows/ })).toHaveAccessibleName(/3 exchange arrows/);
     expect(screen.queryByTestId("no-exchange-note")).not.toBeInTheDocument();
   });
 

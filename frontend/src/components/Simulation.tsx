@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Change, DataMode, Result, Scenario, Service } from "../../../contracts/models";
 import { ApiClient } from "../lib/api";
 import { AsyncError, EmptyState, Pending, useLatestRequest } from "./AsyncState";
@@ -19,6 +19,7 @@ import Certificate from "./Certificate";
 import NetworkGraph, { describeMinutes } from "./NetworkGraph";
 import { STATUS_TEXT } from "./OptimizePanel";
 import Savings from "./Savings";
+import ScrollRegion from "./ScrollRegion";
 
 interface Props {
   client: ApiClient;
@@ -45,7 +46,8 @@ type Status =
 
 const FIELD =
   "mt-1 block w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-slate-900 disabled:bg-slate-100";
-const BUTTON = "rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-60";
+const BUTTON =
+  "rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60";
 
 const cell = (totalsValue: number | undefined) => (totalsValue === undefined ? "n/a (infeasible)" : describeMinutes(totalsValue));
 
@@ -61,6 +63,14 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
   const { start, invalidate } = useLatestRequest();
   const textId = useId();
   const resultHeadingId = useId();
+  const draftErrorId = useId();
+  // Focus targets: keyboard focus must never be left on an element that has just disappeared.
+  const sectionHeading = useRef<HTMLHeadingElement>(null);
+  const proposalHeading = useRef<HTMLHeadingElement>(null);
+  const businessSelect = useRef<HTMLSelectElement>(null);
+  const valueInput = useRef<HTMLInputElement>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const [draftErrorOn, setDraftErrorOn] = useState<"business" | "value">("value");
   const busy = status.kind === "proposing" || status.kind === "applying";
 
   // Any change of the inputs makes pending proposals and in-flight requests stale. What the
@@ -74,6 +84,13 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
   }, [version, client, invalidate]);
 
   const ready = confirmed !== null && baseResult !== null;
+
+  // A proposal that just arrived from the model is announced by moving focus to its heading.
+  const proposalSource = proposal?.source;
+  const proposalCount = proposal?.changes.length;
+  useEffect(() => {
+    if (proposalSource === "text") proposalHeading.current?.focus();
+  }, [proposalSource, proposalCount]);
 
   async function propose() {
     if (!confirmed || !baseResult) return;
@@ -162,17 +179,25 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
 
   function cancel() {
     invalidate();
+    sectionHeading.current?.focus(); // the Cancel button is about to disappear
     setProposal(null);
     setStatus({ kind: "idle" });
   }
 
   function addManual() {
-    if (!confirmed) return;
+    if (!confirmed || busy) return;
+    // On an error, focus goes to the field that needs fixing; its error text is its description.
+    const fail = (message: string) => {
+      const field = businessId === "" ? "business" : "value";
+      setDraftErrorOn(field);
+      setDraftError(message);
+      (field === "business" ? businessSelect : valueInput).current?.focus();
+    };
     const made = changeFromDraft({ kind, businessId, service, value });
-    if (!made.ok) return setDraftError(made.error);
+    if (!made.ok) return fail(made.error);
     const next = [...(proposal?.changes ?? []), made.change];
     const problems = checkChanges(confirmed, next);
-    if (problems.length > 0) return setDraftError(problems[problems.length - 1]);
+    if (problems.length > 0) return fail(problems[problems.length - 1]);
     setDraftError(null);
     setProposal({ source: "manual", changes: next });
     setValue("");
@@ -180,16 +205,17 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
   }
 
   function removeManual(index: number) {
-    if (proposal?.source !== "manual") return;
+    if (proposal?.source !== "manual" || busy) return;
     const next = proposal.changes.filter((_, i) => i !== index);
     setProposal(next.length === 0 ? null : { source: "manual", changes: next });
+    addButton.current?.focus(); // the button that was pressed is about to disappear
   }
 
   const textProposalOpen = proposal?.source === "text";
 
   return (
     <section aria-labelledby="whatif-heading" className="mt-6 space-y-4 border-t border-slate-200 pt-4" data-testid="simulation">
-      <h3 id="whatif-heading" className="text-base font-semibold">
+      <h3 id="whatif-heading" ref={sectionHeading} tabIndex={-1} className="text-base font-semibold focus:outline-none">
         What-if simulation
       </h3>
       <p className="text-sm text-slate-700">
@@ -202,7 +228,7 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
         </EmptyState>
       )}
 
-      <fieldset disabled={!ready || busy} className="space-y-3 rounded border border-slate-300 p-3">
+      <fieldset disabled={!ready} className="min-w-0 space-y-3 rounded border border-slate-300 p-3">
         <legend className="px-1 text-sm font-semibold">Describe a change in words</legend>
         <div>
           <label htmlFor={textId} className="block text-sm font-medium">
@@ -223,12 +249,20 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
         </button>
       </fieldset>
 
-      <fieldset disabled={!ready || busy || textProposalOpen} className="space-y-3 rounded border border-slate-300 p-3">
+      <fieldset disabled={!ready || textProposalOpen} className="min-w-0 space-y-3 rounded border border-slate-300 p-3">
         <legend className="px-1 text-sm font-semibold">Or enter a change yourself</legend>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor={`${textId}-b`} className="block text-sm font-medium">What-if business</label>
-            <select id={`${textId}-b`} className={FIELD} value={businessId} onChange={(e) => setBusinessId(e.target.value)}>
+            <select
+              id={`${textId}-b`}
+              ref={businessSelect}
+              className={FIELD}
+              value={businessId}
+              aria-invalid={draftError !== null && draftErrorOn === "business"}
+              aria-describedby={draftError !== null && draftErrorOn === "business" ? draftErrorId : undefined}
+              onChange={(e) => setBusinessId(e.target.value)}
+            >
               <option value="">Choose…</option>
               {confirmed?.businesses.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -263,21 +297,23 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
             <label htmlFor={`${textId}-v`} className="block text-sm font-medium">What-if new value (hours)</label>
             <input
               id={`${textId}-v`}
+              ref={valueInput}
               inputMode="decimal"
               className={FIELD}
               value={value}
-              aria-invalid={draftError !== null}
+              aria-invalid={draftError !== null && draftErrorOn === "value"}
+              aria-describedby={draftError !== null && draftErrorOn === "value" ? draftErrorId : undefined}
               onChange={(e) => setValue(e.target.value)}
             />
             <p className="mt-0.5 text-xs text-slate-600">Hours (2.5) or minutes (90m). Whole minutes only.</p>
           </div>
         </div>
         {draftError && (
-          <p role="alert" className="text-sm font-medium text-red-800">
+          <p id={draftErrorId} role="alert" className="text-sm font-medium text-red-800">
             {draftError}
           </p>
         )}
-        <button type="button" className={BUTTON} onClick={addManual}>
+        <button type="button" ref={addButton} className={BUTTON} onClick={addManual}>
           Add change
         </button>
       </fieldset>
@@ -310,7 +346,9 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
 
       {proposal && confirmed && (
         <section aria-label="Proposed changes for review" className="rounded border-2 border-amber-500 bg-amber-50 p-3" data-testid="proposal">
-          <h4 className="text-sm font-semibold">Review these changes. They are NOT applied yet.</h4>
+          <h4 ref={proposalHeading} tabIndex={-1} className="text-sm font-semibold focus:outline-none">
+            Review these changes. They are NOT applied yet.
+          </h4>
           {proposal.source === "text" ? (
             <p className="mt-1 text-sm">
               Proposed from your text “{proposal.text}”{" "}
@@ -326,9 +364,9 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
                 {proposal.source === "manual" && (
                   <button
                     type="button"
-                    className="ml-2 text-xs underline disabled:opacity-60"
+                    className="ml-2 min-h-6 text-xs underline aria-disabled:opacity-60"
                     onClick={() => removeManual(i)}
-                    disabled={busy}
+                    aria-disabled={busy}
                     aria-label={`Remove change ${i + 1}`}
                   >
                     remove
@@ -340,8 +378,8 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              className="rounded bg-blue-800 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
-              disabled={busy}
+              className="rounded bg-blue-800 px-4 py-2 text-sm font-medium text-white aria-disabled:cursor-not-allowed aria-disabled:bg-slate-500"
+              aria-disabled={busy}
               onClick={apply}
             >
               {status.kind === "applying" ? "Applying…" : "Apply these changes"}
@@ -365,7 +403,10 @@ export default function Simulation({ client, confirmed, baseResult, version, wha
           baseResult={baseResult}
           whatIf={whatIf}
           headingId={resultHeadingId}
-          onDiscard={onDiscard}
+          onDiscard={() => {
+            onDiscard();
+            sectionHeading.current?.focus(); // the Discard button is about to disappear
+          }}
         />
       )}
     </section>
@@ -388,6 +429,11 @@ function WhatIfResult({
   onDiscard: () => void;
 }) {
   const { result } = whatIf;
+  const heading = useRef<HTMLHeadingElement>(null);
+  // The Apply button is gone once the result is shown, so focus moves to the result.
+  useEffect(() => {
+    heading.current?.focus();
+  }, [whatIf.n]);
   const nameOf = (id: string | null) => (id === null ? "none" : (whatIf.scenario.businesses.find((b) => b.id === id)?.name ?? id));
   const rows = compareAssignments(whatIf.scenario, baseResult, result);
   const b = baseResult.totals ?? undefined;
@@ -402,7 +448,7 @@ function WhatIfResult({
 
   return (
     <section aria-labelledby={headingId} className="space-y-3 rounded border-2 border-blue-700 p-3" data-testid="whatif-result">
-      <h4 id={headingId} className="text-base font-semibold">
+      <h4 id={headingId} ref={heading} tabIndex={-1} className="text-base font-semibold focus:outline-none">
         What-if #{whatIf.n}, a modified copy of the confirmed scenario (input version {whatIf.baseVersion})
       </h4>
       <p className="text-sm">
@@ -434,7 +480,7 @@ function WhatIfResult({
         </ul>
       )}
 
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Original compared with what-if">
         <table className="w-full text-left text-sm" data-testid="comparison">
           <caption className="mb-1 text-left text-sm font-semibold">Original compared with what-if</caption>
           <thead>
@@ -459,9 +505,9 @@ function WhatIfResult({
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
 
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Who does each deliverable">
         <table className="w-full text-left text-sm" data-testid="assignment-diff">
           <caption className="mb-1 text-left text-sm font-semibold">Who does each deliverable</caption>
           <thead>
@@ -491,7 +537,7 @@ function WhatIfResult({
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
 
       {result.status !== "infeasible" && result.totals && result.businessMetrics && (
         <NetworkGraph scenario={whatIf.scenario} result={result} />

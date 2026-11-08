@@ -101,7 +101,7 @@ describe("every documented error code on a POST, shown by kind and never retried
     const retry = within(alert).queryByRole("button", { name: /Try again/ });
     expect(retry !== null).toBe(retryOffered);
     if (retryAfter) {
-      expect(retry).toBeDisabled();
+      expect(retry).toHaveAttribute("aria-disabled", "true");
       expect(retry).toHaveTextContent("Try again in 30 s");
       expect(alert).toHaveTextContent("asked for a wait of 30 s");
     }
@@ -130,8 +130,8 @@ describe("every documented error code on a POST, shown by kind and never retried
     await clickOptimize(user);
     const alert = await screen.findByTestId("optimize-error");
     const retry = within(alert).getByRole("button", { name: /Try again in 1 s/ });
-    expect(retry).toBeDisabled();
-    await waitFor(() => expect(within(alert).getByRole("button", { name: "Try again" })).toBeEnabled(), { timeout: 3000 });
+    expect(retry).toHaveAttribute("aria-disabled", "true");
+    await waitFor(() => expect(within(alert).getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "false"), { timeout: 3000 });
     expect(count("POST /optimize")).toBe(1); // it did not retry by itself
     await user.click(within(alert).getByRole("button", { name: "Try again" }));
     expect(await screen.findByTestId("optimize-result")).toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("slow responses", () => {
     const user = await readyToOptimize();
     await user.dblClick(screen.getByRole("button", { name: "Optimize" }));
     expect(await screen.findByText("Calculating the best allocation…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Optimizing…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Optimizing…" })).toHaveAttribute("aria-disabled", "true");
     expect(await screen.findByTestId("optimize-result", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.queryByText("Calculating the best allocation…")).not.toBeInTheDocument();
     expect(count("POST /optimize")).toBe(1);
@@ -242,7 +242,7 @@ describe("disconnects", () => {
     const alert = await screen.findByTestId("optimize-error");
     expect(alert).toHaveAttribute("data-kind", "unreachable");
     expect(alert).toHaveTextContent("Cannot reach the backend at http://127.0.0.1:8000");
-    expect(within(alert).getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(within(alert).getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "false");
     await settle(600);
     expect(count("POST /optimize")).toBe(1);
 
@@ -296,7 +296,7 @@ describe("the health check is the one safe read that retries by itself", () => {
     const alert = await screen.findByTestId("health-error");
     expect(alert).toHaveAttribute("data-kind", "rate_limited");
     expect(alert).toHaveTextContent("asked for a wait of 5 min");
-    expect(within(alert).getByRole("button", { name: /Try again in 5 min/ })).toBeDisabled();
+    expect(within(alert).getByRole("button", { name: /Try again in 5 min/ })).toHaveAttribute("aria-disabled", "true");
     await settle(600);
     expect(count("GET /health")).toBe(1);
   });

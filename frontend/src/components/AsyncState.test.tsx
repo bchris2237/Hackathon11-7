@@ -111,11 +111,11 @@ describe("AsyncError", () => {
     render(<AsyncError error={envelope(429, "THROTTLED", 3)} onRetry={() => {}} />);
     expect(screen.getByTestId("retry-after")).toHaveTextContent("wait of 3 s");
     const button = screen.getByRole("button", { name: "Try again in 3 s" });
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
     act(() => void vi.advanceTimersByTime(1100));
-    expect(screen.getByRole("button", { name: "Try again in 2 s" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Try again in 2 s" })).toHaveAttribute("aria-disabled", "true");
     act(() => void vi.advanceTimersByTime(2000));
-    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "false");
   });
 
   it("restarts the wait for a new error", () => {
@@ -123,15 +123,15 @@ describe("AsyncError", () => {
     const first = envelope(429, "THROTTLED", 2);
     const { rerender } = render(<AsyncError error={first} onRetry={() => {}} />);
     act(() => void vi.advanceTimersByTime(2500));
-    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "false");
     rerender(<AsyncError error={envelope(429, "THROTTLED", 5)} onRetry={() => {}} />);
-    expect(screen.getByRole("button", { name: "Try again in 5 s" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Try again in 5 s" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("a 429 without Retry-After retries immediately on the user's say-so", () => {
     render(<AsyncError error={envelope(429, "THROTTLED")} onRetry={() => {}} />);
     expect(screen.queryByTestId("retry-after")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "false");
   });
 });
 

@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import type { BusinessMetrics, Result, Scenario } from "../../../contracts/models";
 import { ApiClient } from "../lib/api";
 import { AsyncError, Pending, useLatestRequest } from "./AsyncState";
+import ScrollRegion from "./ScrollRegion";
 import { formatDuration } from "../state/scenario";
 import { describeMinutes } from "./NetworkGraph";
 
@@ -103,7 +104,7 @@ export default function Savings({ scenario, result, client }: Props) {
         coordination: {hoursText(totals.baselineMinutes)} → {hoursText(totals.effortMinutes)} of effort.
       </p>
 
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Effort per business">
         <table className="w-full text-left text-sm" data-testid="metrics">
           <caption className="mb-1 text-left text-sm font-semibold">Effort per business</caption>
           <thead>
@@ -142,7 +143,7 @@ export default function Savings({ scenario, result, client }: Props) {
             </tr>
           </tfoot>
         </table>
-      </div>
+      </ScrollRegion>
 
       <p className="text-sm" data-testid="savings-summary">
         Gross savings (baseline minus production): {describeMinutes(totals.grossSavingsMinutes)}
@@ -201,15 +202,15 @@ function ExplainSection({ scenario, result, client }: Props) {
   }
 
   return (
-    <section aria-labelledby={headingId} className="rounded border border-slate-200 p-2" data-testid="explain">
+    <div role="group" aria-labelledby={headingId} className="rounded border border-slate-200 p-2" data-testid="explain">
       <h4 id={headingId} className="text-sm font-semibold">
         Plain-language explanation (optional)
       </h4>
       <button
         type="button"
         onClick={run}
-        disabled={state.kind === "pending"}
-        className="mt-1 rounded border border-slate-500 bg-white px-3 py-1 text-sm font-medium disabled:opacity-60"
+        aria-disabled={state.kind === "pending"}
+        className="mt-1 rounded border border-slate-500 bg-white px-3 py-1 text-sm font-medium aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
       >
         {state.kind === "pending" ? "Explaining…" : "Explain these results"}
       </button>
@@ -232,6 +233,6 @@ function ExplainSection({ scenario, result, client }: Props) {
           </p>
         </div>
       )}
-    </section>
+    </div>
   );
 }

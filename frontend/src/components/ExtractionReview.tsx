@@ -104,6 +104,7 @@ export default function ExtractionReview({ client, form, version, validation, co
   }, [client, invalidate]);
 
   async function runExtract() {
+    if (extractStatus.kind === "pending" || confirmStatus.kind === "pending") return; // button is aria-disabled, not removed
     const sent = form.businesses
       .map((b) => ({ id: b.id.trim(), name: b.name.trim(), text: b.description.trim() }))
       .filter((d) => d.id !== "" && d.name !== "" && d.text !== "");
@@ -170,8 +171,8 @@ export default function ExtractionReview({ client, form, version, validation, co
         <button
           type="button"
           onClick={runExtract}
-          disabled={extractStatus.kind === "pending" || confirmStatus.kind === "pending"}
-          className="mt-2 rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-60"
+          aria-disabled={extractStatus.kind === "pending" || confirmStatus.kind === "pending"}
+          className="mt-2 rounded border border-slate-500 bg-white px-3 py-1.5 text-sm font-medium aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
         >
           {extractStatus.kind === "pending" ? "Extracting…" : "Extract draft"}
         </button>
@@ -276,9 +277,10 @@ export default function ExtractionReview({ client, form, version, validation, co
         )}
         <button
           type="button"
-          disabled={!validation.scenario || confirmStatus.kind === "pending" || extractStatus.kind === "pending"}
+          disabled={!validation.scenario}
+          aria-disabled={confirmStatus.kind === "pending" || extractStatus.kind === "pending"}
           onClick={runConfirm}
-          className="mt-2 rounded bg-blue-800 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="mt-2 rounded bg-blue-800 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-400 aria-disabled:cursor-not-allowed aria-disabled:bg-slate-500"
         >
           {confirmStatus.kind === "pending" ? "Confirming…" : "Confirm scenario"}
         </button>
